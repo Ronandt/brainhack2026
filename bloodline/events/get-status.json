@@ -1,0 +1,14 @@
+{
+  "httpMethod": "GET",
+  "path": "/api/v1/predict/status",
+  "queryStringParameters": null,
+  "requestContext": {
+    "authorizer": {
+      "claims": {
+        "sub": "donor-001",
+        "email": "donor@example.com"
+      }
+    }
+  },
+  "body": null
+}

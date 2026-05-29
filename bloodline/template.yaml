@@ -1,0 +1,480 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Bloodline — Singapore Blood Supply Crisis-Resilience Platform
+
+Globals:
+  Function:
+    Runtime: python3.12
+    Timeout: 30
+    MemorySize: 256
+    Layers:
+      - !Sub arn:aws:lambda:${AWS::Region}:017000801446:layer:AWSLambdaPowertoolsPythonV2:67
+    Environment:
+      Variables:
+        DONORS_TABLE: !Ref DonorsTable
+        DONATIONS_TABLE: !Ref DonationsTable
+        PREDICTIONS_TABLE: !Ref PredictionsTable
+        BLOOD_STOCK_TABLE: !Ref BloodStockTable
+        BLOOD_DRIVES_TABLE: !Ref BloodDrivesTable
+        BOOKINGS_TABLE: !Ref BookingsTable
+        ALERTS_TABLE: !Ref AlertsTable
+        PREDICTIONS_BUCKET: !Ref PredictionsCacheBucket
+        SURGE_ALERT_TOPIC: !Ref SurgeAlertTopic
+        POWERTOOLS_SERVICE_NAME: bloodline
+        LOG_LEVEL: INFO
+
+Parameters:
+  Stage:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, staging, prod]
+
+# ---------------------------------------------------------------------------
+# API GATEWAY
+# ---------------------------------------------------------------------------
+Resources:
+
+  BloodlineApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name: !Sub bloodline-api-${Stage}
+      StageName: !Ref Stage
+      Cors:
+        AllowMethods: "'GET,POST,PUT,DELETE,OPTIONS'"
+        AllowHeaders: "'Content-Type,Authorization'"
+        AllowOrigin: "'*'"
+      Auth:
+        DefaultAuthorizer: CognitoAuth
+        Authorizers:
+          CognitoAuth:
+            UserPoolArn: !GetAtt DonorUserPool.Arn
+        AddDefaultAuthorizerToCorsPreflight: false
+
+# ---------------------------------------------------------------------------
+# COGNITO
+# ---------------------------------------------------------------------------
+
+  DonorUserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub bloodline-donors-${Stage}
+      AutoVerifiedAttributes:
+        - email
+      UsernameAttributes:
+        - email
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 8
+          RequireUppercase: false
+          RequireLowercase: false
+          RequireNumbers: false
+          RequireSymbols: false
+      Schema:
+        - Name: blood_type
+          AttributeDataType: String
+          Mutable: true
+        - Name: postal_code
+          AttributeDataType: String
+          Mutable: true
+
+  DonorUserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName: !Sub bloodline-spa-${Stage}
+      UserPoolId: !Ref DonorUserPool
+      GenerateSecret: false
+      ExplicitAuthFlows:
+        - ALLOW_USER_SRP_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+
+  HSAAdminGroup:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties:
+      GroupName: HSAAdmin
+      UserPoolId: !Ref DonorUserPool
+      Description: HSA staff with admin-level access
+
+# ---------------------------------------------------------------------------
+# FRONTEND — S3 + CLOUDFRONT
+# ---------------------------------------------------------------------------
+
+  FrontendBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub bloodline-frontend-${Stage}-${AWS::AccountId}
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  FrontendBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref FrontendBucket
+      PolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub ${FrontendBucket.Arn}/*
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub arn:aws:cloudfront::${AWS::AccountId}:distribution/${FrontendDistribution}
+
+  FrontendOAC:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub bloodline-oac-${Stage}
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  FrontendDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        DefaultRootObject: index.html
+        Origins:
+          - Id: S3Origin
+            DomainName: !GetAtt FrontendBucket.RegionalDomainName
+            OriginAccessControlId: !Ref FrontendOAC
+            S3OriginConfig:
+              OriginAccessIdentity: ''
+        DefaultCacheBehavior:
+          ViewerProtocolPolicy: redirect-to-https
+          TargetOriginId: S3Origin
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6  # CachingOptimized
+          AllowedMethods: [GET, HEAD, OPTIONS]
+        CustomErrorResponses:
+          - ErrorCode: 404
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+          - ErrorCode: 403
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+
+# ---------------------------------------------------------------------------
+# S3 — BACKEND PREDICTIONS CACHE
+# ---------------------------------------------------------------------------
+
+  PredictionsCacheBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub bloodline-predictions-${Stage}-${AWS::AccountId}
+
+# ---------------------------------------------------------------------------
+# DYNAMODB TABLES
+# ---------------------------------------------------------------------------
+
+  DonorsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub bloodline-donors-${Stage}
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: donorId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: donorId
+          KeyType: HASH
+
+  DonationsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub bloodline-donations-${Stage}
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: donorId
+          AttributeType: S
+        - AttributeName: donatedAt
+          AttributeType: S
+      KeySchema:
+        - AttributeName: donorId
+          KeyType: HASH
+        - AttributeName: donatedAt
+          KeyType: RANGE
+
+  PredictionsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub bloodline-predictions-${Stage}
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: bloodType
+          AttributeType: S
+        - AttributeName: forecastDate
+          AttributeType: S
+      KeySchema:
+        - AttributeName: bloodType
+          KeyType: HASH
+        - AttributeName: forecastDate
+          KeyType: RANGE
+
+  BloodStockTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub bloodline-blood-stock-${Stage}
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: bloodType
+          AttributeType: S
+        - AttributeName: updatedAt
+          AttributeType: S
+      KeySchema:
+        - AttributeName: bloodType
+          KeyType: HASH
+        - AttributeName: updatedAt
+          KeyType: RANGE
+
+  BloodDrivesTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub bloodline-drives-${Stage}
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: driveId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: driveId
+          KeyType: HASH
+
+  BookingsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub bloodline-bookings-${Stage}
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: donorId
+          AttributeType: S
+        - AttributeName: driveId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: donorId
+          KeyType: HASH
+        - AttributeName: driveId
+          KeyType: RANGE
+
+  AlertsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub bloodline-alerts-${Stage}
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: alertId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: alertId
+          KeyType: HASH
+
+# ---------------------------------------------------------------------------
+# SNS
+# ---------------------------------------------------------------------------
+
+  SurgeAlertTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub bloodline-surge-alerts-${Stage}
+
+# ---------------------------------------------------------------------------
+# LAMBDA FUNCTIONS
+# ---------------------------------------------------------------------------
+
+  DonorFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub bloodline-donors-${Stage}
+      CodeUri: src/donors/
+      Handler: handler.lambda_handler
+      Description: Donor profile CRUD and eligibility countdown
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref DonorsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref DonationsTable
+      Events:
+        GetDonor:
+          Type: Api
+          Properties:
+            RestApiId: !Ref BloodlineApi
+            Path: /api/v1/donors/me
+            Method: GET
+        UpdateDonor:
+          Type: Api
+          Properties:
+            RestApiId: !Ref BloodlineApi
+            Path: /api/v1/donors/me
+            Method: PUT
+
+  PredictFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub bloodline-predict-${Stage}
+      CodeUri: src/predict/
+      Handler: handler.lambda_handler
+      Description: 14-day shortage forecast — serves cached data from DynamoDB, refreshes on schedule
+      Timeout: 60
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref PredictionsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref BloodStockTable
+        - S3CrudPolicy:
+            BucketName: !Ref PredictionsCacheBucket
+      Events:
+        GetForecast:
+          Type: Api
+          Properties:
+            RestApiId: !Ref BloodlineApi
+            Path: /api/v1/predict/forecast
+            Method: GET
+        GetStatus:
+          Type: Api
+          Properties:
+            RestApiId: !Ref BloodlineApi
+            Path: /api/v1/predict/status
+            Method: GET
+        HourlyRefresh:
+          Type: Schedule
+          Properties:
+            Schedule: rate(1 hour)
+            Description: Refresh blood shortage forecast every hour
+            Input: '{"source": "eventbridge"}'
+
+  SurgeFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub bloodline-surge-${Stage}
+      CodeUri: src/surge/
+      Handler: handler.lambda_handler
+      Description: Break-glass surge alert activation (requires HSA dual sign-off)
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref AlertsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref DonorsTable
+        - SNSPublishMessagePolicy:
+            TopicName: !GetAtt SurgeAlertTopic.TopicName
+      Events:
+        ActivateSurge:
+          Type: Api
+          Properties:
+            RestApiId: !Ref BloodlineApi
+            Path: /api/v1/surge/activate
+            Method: POST
+        MonitorSurge:
+          Type: Api
+          Properties:
+            RestApiId: !Ref BloodlineApi
+            Path: /api/v1/surge/monitor
+            Method: GET
+
+  NotifyFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub bloodline-notify-${Stage}
+      CodeUri: src/notify/
+      Handler: handler.lambda_handler
+      Description: Dispatches push/SMS alerts to eligible donors based on blood type and geo tier
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref DonorsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref AlertsTable
+      Events:
+        SurgeSNSTrigger:
+          Type: SNS
+          Properties:
+            Topic: !Ref SurgeAlertTopic
+
+  ScheduleFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub bloodline-schedule-${Stage}
+      CodeUri: src/schedule/
+      Handler: handler.lambda_handler
+      Description: Appointment booking and blood drive management
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref BookingsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref BloodDrivesTable
+      Events:
+        ListDrives:
+          Type: Api
+          Properties:
+            RestApiId: !Ref BloodlineApi
+            Path: /api/v1/schedule/drives
+            Method: GET
+        CreateBooking:
+          Type: Api
+          Properties:
+            RestApiId: !Ref BloodlineApi
+            Path: /api/v1/schedule/book
+            Method: POST
+
+  RetainFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub bloodline-retain-${Stage}
+      CodeUri: src/retain/
+      Handler: handler.lambda_handler
+      Description: Donor impact stats, milestone badges, squad leaderboards
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref DonationsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref DonorsTable
+      Events:
+        GetStats:
+          Type: Api
+          Properties:
+            RestApiId: !Ref BloodlineApi
+            Path: /api/v1/retain/stats
+            Method: GET
+
+  HSASyncFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub bloodline-hsa-sync-${Stage}
+      CodeUri: src/hsa-sync/
+      Handler: handler.lambda_handler
+      Description: Polls HSA API for blood stock levels every 15 minutes
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref BloodStockTable
+      Events:
+        SyncSchedule:
+          Type: Schedule
+          Properties:
+            Schedule: rate(15 minutes)
+            Description: Sync blood stock levels from HSA API
+            Input: '{"source": "eventbridge"}'
+
+# ---------------------------------------------------------------------------
+# OUTPUTS
+# ---------------------------------------------------------------------------
+
+Outputs:
+  ApiUrl:
+    Description: API Gateway endpoint URL
+    Value: !Sub https://${BloodlineApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}
+
+  FrontendUrl:
+    Description: CloudFront distribution URL for the PWA
+    Value: !Sub https://${FrontendDistribution.DomainName}
+
+  FrontendBucketName:
+    Description: S3 bucket to upload frontend build artifacts
+    Value: !Ref FrontendBucket
+
+  UserPoolId:
+    Description: Cognito User Pool ID
+    Value: !Ref DonorUserPool
+
+  UserPoolClientId:
+    Description: Cognito App Client ID for the SPA
+    Value: !Ref DonorUserPoolClient

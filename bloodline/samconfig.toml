@@ -1,0 +1,26 @@
+[default]
+[default.global.parameters]
+stack_name = "bloodline-dev"
+
+[default.build.parameters]
+cached = true
+parallel = true
+
+[default.deploy.parameters]
+capabilities = "CAPABILITY_IAM"
+confirm_changeset = false
+resolve_s3 = true
+region = "ap-southeast-1"
+parameter_overrides = "Stage=dev"
+
+[staging.deploy.parameters]
+stack_name = "bloodline-staging"
+region = "ap-southeast-1"
+parameter_overrides = "Stage=staging"
+confirm_changeset = true
+
+[prod.deploy.parameters]
+stack_name = "bloodline-prod"
+region = "ap-southeast-1"
+parameter_overrides = "Stage=prod"
+confirm_changeset = true

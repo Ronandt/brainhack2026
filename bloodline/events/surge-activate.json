@@ -1,0 +1,18 @@
+{
+  "httpMethod": "POST",
+  "path": "/api/v1/surge/activate",
+  "headers": {
+    "Content-Type": "application/json",
+    "Authorization": "Bearer <cognito-token>"
+  },
+  "requestContext": {
+    "authorizer": {
+      "claims": {
+        "sub": "hsa-officer-001",
+        "cognito:groups": "HSAAdmin",
+        "email": "officer@hsa.gov.sg"
+      }
+    }
+  },
+  "body": "{\"bloodType\":\"O-\",\"geoTier\":\"island-wide\",\"message\":\"Critical shortage of O- blood. All eligible donors urgently needed.\",\"approverId\":\"hsa-officer-002\"}"
+}

@@ -1,0 +1,5 @@
+{
+  "source": "eventbridge",
+  "detail-type": "Scheduled Event",
+  "detail": {}
+}
