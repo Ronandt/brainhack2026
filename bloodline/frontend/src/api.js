@@ -39,3 +39,8 @@ export const createBooking = (body) =>
 
 // Retain
 export const getRetainStats = () => request("/api/v1/retain/stats");
+
+// Diagnostics / test panel
+export const getDiagnostics = () => request("/api/v1/admin/diagnostics");
+export const triggerFunction = (target) =>
+  request("/api/v1/admin/trigger", { method: "POST", body: JSON.stringify({ target }) });

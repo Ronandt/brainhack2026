@@ -4,6 +4,7 @@ import SurgePanel from "./SurgePanel";
 import SchedulePanel from "./SchedulePanel";
 import RetainPanel from "./RetainPanel";
 import DonorPanel from "./DonorPanel";
+import TestPanel from "./TestPanel";
 
 const TABS = [
   { id: "predict", label: "Predict" },
@@ -11,6 +12,7 @@ const TABS = [
   { id: "schedule", label: "Schedule" },
   { id: "retain", label: "Retain" },
   { id: "donor", label: "Profile" },
+  { id: "test", label: "🔧 Test" },
 ];
 
 const s = {
@@ -49,6 +51,7 @@ export default function Dashboard({ onLogout }) {
         {tab === "schedule" && <SchedulePanel />}
         {tab === "retain" && <RetainPanel />}
         {tab === "donor" && <DonorPanel />}
+        {tab === "test" && <TestPanel />}
       </div>
     </div>
   );

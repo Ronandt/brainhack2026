@@ -63,4 +63,13 @@ manifest_hash = ""
 packagetype = "Zip"
 functions = ["HSASyncFunction"]
 
+[function_build_definitions.cca18187-34ff-406e-8307-3ca448abd07f]
+codeuri = "C:\\Users\\decla\\brainhack\\brainhack2026\\bloodline\\src\\diagnostics"
+runtime = "python3.12"
+architecture = "x86_64"
+handler = "handler.lambda_handler"
+manifest_hash = ""
+packagetype = "Zip"
+functions = ["DiagnosticsFunction"]
+
 [layer_build_definitions]

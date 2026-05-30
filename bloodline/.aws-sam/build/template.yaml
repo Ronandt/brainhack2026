@@ -491,6 +491,72 @@ Resources:
             Input: '{"source": "eventbridge"}'
     Metadata:
       SamResourceId: HSASyncFunction
+  DiagnosticsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName:
+        Fn::Sub: bloodline-diagnostics-${Stage}
+      CodeUri: DiagnosticsFunction
+      Handler: handler.lambda_handler
+      Description: "Test panel \u2014 probes all services and triggers scheduled functions"
+      Timeout: 30
+      Environment:
+        Variables:
+          HSA_SYNC_FUNCTION:
+            Fn::Sub: bloodline-hsa-sync-${Stage}
+          PREDICT_FUNCTION:
+            Fn::Sub: bloodline-predict-${Stage}
+      Policies:
+      - DynamoDBReadPolicy:
+          TableName:
+            Ref: DonorsTable
+      - DynamoDBReadPolicy:
+          TableName:
+            Ref: DonationsTable
+      - DynamoDBReadPolicy:
+          TableName:
+            Ref: PredictionsTable
+      - DynamoDBReadPolicy:
+          TableName:
+            Ref: BloodStockTable
+      - DynamoDBReadPolicy:
+          TableName:
+            Ref: BloodDrivesTable
+      - DynamoDBReadPolicy:
+          TableName:
+            Ref: BookingsTable
+      - DynamoDBReadPolicy:
+          TableName:
+            Ref: AlertsTable
+      - SNSPublishMessagePolicy:
+          TopicName:
+            Fn::GetAtt:
+            - SurgeAlertTopic
+            - TopicName
+      - Statement:
+        - Effect: Allow
+          Action:
+          - events:ListRules
+          - lambda:InvokeFunction
+          - sts:GetCallerIdentity
+          Resource: '*'
+      Events:
+        GetDiagnostics:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: BloodlineApi
+            Path: /api/v1/admin/diagnostics
+            Method: GET
+        TriggerFunction:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: BloodlineApi
+            Path: /api/v1/admin/trigger
+            Method: POST
+    Metadata:
+      SamResourceId: DiagnosticsFunction
 Outputs:
   ApiUrl:
     Description: API Gateway endpoint URL
