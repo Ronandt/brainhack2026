@@ -454,6 +454,70 @@ Resources:
             Description: Sync blood stock levels from HSA API
             Input: '{"source": "eventbridge"}'
 
+  AdminFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub bloodline-admin-${Stage}
+      CodeUri: src/admin/
+      Handler: handler.lambda_handler
+      Description: HSA admin console — donor segments, drive approvals, stock overview, demand input
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref DonorsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref DonationsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref BloodDrivesTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref AlertsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref BloodStockTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref PredictionsTable
+      Events:
+        GetDonorSegments:
+          Type: Api
+          Properties:
+            RestApiId: !Ref BloodlineApi
+            Path: /api/v1/admin/donors/segments
+            Method: GET
+        GetPendingDrives:
+          Type: Api
+          Properties:
+            RestApiId: !Ref BloodlineApi
+            Path: /api/v1/admin/drives/pending
+            Method: GET
+        ApproveDrive:
+          Type: Api
+          Properties:
+            RestApiId: !Ref BloodlineApi
+            Path: /api/v1/admin/drives/{driveId}/approve
+            Method: POST
+        RejectDrive:
+          Type: Api
+          Properties:
+            RestApiId: !Ref BloodlineApi
+            Path: /api/v1/admin/drives/{driveId}/reject
+            Method: POST
+        GetStockOverview:
+          Type: Api
+          Properties:
+            RestApiId: !Ref BloodlineApi
+            Path: /api/v1/admin/stock
+            Method: GET
+        GetAllAlerts:
+          Type: Api
+          Properties:
+            RestApiId: !Ref BloodlineApi
+            Path: /api/v1/admin/alerts
+            Method: GET
+        SubmitHospitalDemand:
+          Type: Api
+          Properties:
+            RestApiId: !Ref BloodlineApi
+            Path: /api/v1/admin/demand
+            Method: POST
+
   DiagnosticsFunction:
     Type: AWS::Serverless::Function
     Properties:

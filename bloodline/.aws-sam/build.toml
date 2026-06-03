@@ -72,4 +72,13 @@ manifest_hash = ""
 packagetype = "Zip"
 functions = ["DiagnosticsFunction"]
 
+[function_build_definitions.99130094-8f30-4062-8a97-fb8e3b9b1a26]
+codeuri = "C:\\Users\\decla\\brainhack\\brainhack2026\\bloodline\\src\\admin"
+runtime = "python3.12"
+architecture = "x86_64"
+handler = "handler.lambda_handler"
+manifest_hash = ""
+packagetype = "Zip"
+functions = ["AdminFunction"]
+
 [layer_build_definitions]

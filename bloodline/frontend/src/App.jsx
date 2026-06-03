@@ -18,7 +18,7 @@ export default function App() {
 
   if (!token) return <Auth onLogin={setToken} />;
 
-  return <Dashboard onLogout={() => { signOut(); setToken(null); }} />;
+  return <Dashboard token={token} onLogout={() => { signOut(); setToken(null); }} />;
 }
 
 function Spinner() {
