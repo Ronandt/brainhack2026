@@ -415,12 +415,6 @@ Resources:
         - DynamoDBCrudPolicy:
             TableName: !Ref BloodDrivesTable
       Events:
-        ListHospitalDrives:
-          Type: Api
-          Properties:
-            RestApiId: !Ref BloodlineApi
-            Path: /api/v1/hospital/drives
-            Method: GET
         ListDrives:
           Type: Api
           Properties:
