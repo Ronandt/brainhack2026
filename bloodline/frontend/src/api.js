@@ -57,6 +57,9 @@ export const createDrive = (body) =>
   request("/api/v1/schedule/drives", { method: "POST", body: JSON.stringify(body) });
 export const getHospitalDrives = () => request("/api/v1/hospital/drives");
 
+// Blood stock (live Red Cross SG scrape, cached every 15 min via EventBridge)
+export const getBloodStock = () => request("/api/v1/blood-stock");
+
 // Retain
 export const getRetainStats = () => request("/api/v1/retain/stats");
 

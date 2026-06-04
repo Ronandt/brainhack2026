@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { getDonor, getStatus, getSlots, bookSlot, getSurgeMonitor } from "../api";
+import { getDonor, getStatus, getSlots, bookSlot, getSurgeMonitor, getBloodStock } from "../api";
 import { BL, riskToNeed } from "../tokens";
 
 function AppHeader({ sub, title, right }) {
@@ -49,6 +49,8 @@ export default function HomePanel() {
   const [slots, setSlots] = useState([]);
   const [surgeAlerts, setSurgeAlerts] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [bloodStock, setBloodStock] = useState([]);
+  const [bloodStockUpdated, setBloodStockUpdated] = useState("");
   const [screen, setScreen] = useState(null);
   const [selectedSlot, setSelectedSlot] = useState(null);
   const [confirming, setConfirming] = useState(false);
@@ -69,6 +71,10 @@ export default function HomePanel() {
       getDonor().then(setDonor),
       getStatus().then(setStatus),
       getSlots().then(d => setSlots(d.slots ?? [])),
+      getBloodStock().then(d => {
+        setBloodStock(d.bloodStock ?? []);
+        setBloodStockUpdated(d.updatedAt ?? "");
+      }),
     ]).finally(() => setLoading(false));
 
     // Surge is fetched independently so a monitor error never blocks the main load
@@ -76,6 +82,9 @@ export default function HomePanel() {
     const id = setInterval(fetchSurge, 30_000);
     return () => clearInterval(id);
   }, []);
+
+  const statusToNeed = (status) =>
+    ({ Healthy: "ok", Moderate: "low", Low: "urgent", Critical: "critical" })[status] ?? "ok";
 
   const userType = donor?.bloodType;
   const typeStatus = status?.byBloodType?.find(t => t.bloodType === userType);
@@ -492,6 +501,40 @@ export default function HomePanel() {
             {["ok", "low", "urgent", "critical"].map(n => (
               <span key={n} style={{ color: BL.need[n].fg }}>● {BL.need[n].label}</span>
             ))}
+          </div>
+        </Card>
+      )}
+
+      {/* Live blood stock — Red Cross SG */}
+      {bloodStock.length > 0 && (
+        <Card>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+            <Tag>Live stock · Red Cross SG</Tag>
+            {bloodStockUpdated && (
+              <Tag color={BL.faint}>{bloodStockUpdated.slice(0, 10)}</Tag>
+            )}
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {bloodStock.map(item => {
+              const need = statusToNeed(item.status);
+              return (
+                <div key={item.bloodType}>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                    <span style={{ fontFamily: BL.mono, fontSize: 11, fontWeight: 700, color: BL.ink }}>{item.bloodType}</span>
+                    <span style={{ fontFamily: BL.mono, fontSize: 10, color: BL.need[need].fg, textTransform: "uppercase", letterSpacing: 0.4 }}>
+                      {item.status} · {item.percentage}%
+                    </span>
+                  </div>
+                  <div style={{ background: BL.fill, borderRadius: 3, height: 6, overflow: "hidden" }}>
+                    <div style={{
+                      width: `${item.percentage}%`, height: "100%",
+                      background: BL.need[need].fg, borderRadius: 3,
+                      transition: "width 0.6s ease",
+                    }} />
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </Card>
       )}

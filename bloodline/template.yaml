@@ -4,11 +4,9 @@ Description: Bloodline — Singapore Blood Supply Crisis-Resilience Platform
 
 Globals:
   Function:
-    Runtime: python3.12
+    Runtime: python3.13
     Timeout: 30
     MemorySize: 256
-    Layers:
-      - !Sub arn:aws:lambda:${AWS::Region}:017000801446:layer:AWSLambdaPowertoolsPythonV2:67
     Environment:
       Variables:
         DONORS_TABLE: !Ref DonorsTable
@@ -512,7 +510,8 @@ Resources:
       FunctionName: !Sub bloodline-hsa-sync-${Stage}
       CodeUri: src/hsa-sync/
       Handler: handler.lambda_handler
-      Description: Polls HSA API for blood stock levels every 15 minutes
+      Description: Scrapes Red Cross SG blood stock every 15 minutes; serves cached data via HTTP
+      Timeout: 30
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref BloodStockTable
@@ -521,8 +520,14 @@ Resources:
           Type: Schedule
           Properties:
             Schedule: rate(15 minutes)
-            Description: Sync blood stock levels from HSA API
+            Description: Scrape Red Cross SG blood stock levels
             Input: '{"source": "eventbridge"}'
+        GetBloodStock:
+          Type: Api
+          Properties:
+            RestApiId: !Ref BloodlineApi
+            Path: /api/v1/blood-stock
+            Method: GET
 
   AdminFunction:
     Type: AWS::Serverless::Function
