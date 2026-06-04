@@ -4,12 +4,27 @@ import { BL } from "../tokens";
 
 const BLOOD_TYPES = ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"];
 
+function AppHeader({ sub, title }) {
+  return (
+    <div style={{ padding: "0 0 10px" }}>
+      {sub && (
+        <div style={{ fontFamily: BL.mono, fontSize: 9, letterSpacing: 0.6, textTransform: "uppercase", color: BL.muted, marginBottom: 2 }}>
+          {sub}
+        </div>
+      )}
+      <div style={{ fontFamily: BL.sans, fontSize: 22, fontWeight: 600, color: BL.ink, letterSpacing: -0.4, lineHeight: 1.2 }}>
+        {title}
+      </div>
+    </div>
+  );
+}
+
 function Tag({ children, color, bg }) {
   return (
     <span style={{
-      fontFamily: BL.mono, fontSize: 10, letterSpacing: 0.6, textTransform: "uppercase",
+      fontFamily: BL.mono, fontSize: 9, letterSpacing: 0.6, textTransform: "uppercase",
       color: color || BL.muted,
-      ...(bg ? { background: bg, padding: "2px 7px", borderRadius: 3 } : {}),
+      ...(bg ? { background: bg, padding: "2px 6px", borderRadius: 3 } : {}),
     }}>
       {children}
     </span>
@@ -56,15 +71,10 @@ export default function DonorDrivesPanel() {
 
   return (
     <div>
-      {/* Header */}
-      <div style={{ marginBottom: 20 }}>
-        <div style={{ fontFamily: BL.sans, fontSize: 22, fontWeight: 600, color: BL.ink, letterSpacing: -0.3, marginBottom: 4 }}>
-          Drives near you
-        </div>
-        <div style={{ fontFamily: BL.mono, fontSize: 10, color: BL.muted, letterSpacing: 0.6, textTransform: "uppercase" }}>
-          {activeCount} active
-        </div>
-      </div>
+      <AppHeader
+        sub={activeCount > 0 ? `${activeCount} active` : undefined}
+        title="Drives near you"
+      />
 
       {/* Blood type filter chips */}
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 20 }}>
@@ -109,7 +119,7 @@ export default function DonorDrivesPanel() {
 
           return (
             <div key={drive.driveId} style={{
-              background: BL.card, border: `1px solid ${BL.hair}`, borderRadius: 8, padding: 16,
+              background: BL.card, border: `1px solid ${BL.hair}`, borderRadius: 6, padding: 14,
             }}>
               {/* Drive header */}
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
