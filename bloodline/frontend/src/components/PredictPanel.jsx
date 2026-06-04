@@ -1,34 +1,46 @@
 import { useState, useEffect } from "react";
 import { getStatus, getForecast } from "../api";
+import { BL, riskToNeed } from "../tokens";
 
-const RISK_COLOR = { ok: "#2ecc71", low: "#f39c12", urgent: "#e67e22", critical: "#c0392b" };
 const BLOOD_TYPES = ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"];
 
 const s = {
-  section: { marginBottom: 32 },
-  title: { fontSize: 22, fontWeight: 700, marginBottom: 4 },
-  sub: { color: "#666", fontSize: 13, marginBottom: 20 },
-  statusRow: { display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 24 },
-  chip: (risk) => ({
-    background: "#1a1a1a", border: `1px solid ${RISK_COLOR[risk] ?? "#333"}`, borderRadius: 8,
-    padding: "10px 16px", minWidth: 100, textAlign: "center",
+  pageTitle:  { fontFamily: BL.sans, fontSize: 22, fontWeight: 600, color: BL.ink, letterSpacing: -0.3, marginBottom: 4 },
+  pageSub:    { fontFamily: BL.sans, fontSize: 13, color: BL.muted, marginBottom: 20 },
+  section:    { marginBottom: 32 },
+  card:       { background: BL.card, border: `1px solid ${BL.hair}`, borderRadius: 6, padding: 16, marginBottom: 12 },
+  chipGrid:   { display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 20 },
+  chip:       (need) => ({
+    background: BL.need[need].bg,
+    border: `1px solid ${BL.need[need].fg}22`,
+    borderRadius: 6, padding: "10px 14px", minWidth: 80, textAlign: "center",
   }),
-  chipType: { fontSize: 11, color: "#888", marginBottom: 2 },
-  chipRisk: (risk) => ({ fontSize: 16, fontWeight: 700, color: RISK_COLOR[risk] ?? "#fff" }),
-  chipUnits: { fontSize: 11, color: "#555" },
-  banner: (risk) => ({
-    background: RISK_COLOR[risk] ?? "#1a1a1a", borderRadius: 10, padding: "16px 20px",
-    marginBottom: 24, display: "flex", alignItems: "center", gap: 12,
+  chipType:   { fontFamily: BL.mono, fontSize: 10, color: BL.muted, marginBottom: 2, letterSpacing: 0.4 },
+  chipRisk:   (need) => ({ fontFamily: BL.mono, fontSize: 13, fontWeight: 600, color: BL.need[need].fg }),
+  chipUnits:  { fontFamily: BL.mono, fontSize: 10, color: BL.muted, marginTop: 2 },
+  banner:     (need) => ({
+    background: BL.need[need].bg,
+    border: `1px solid ${BL.need[need].fg}33`,
+    borderRadius: 6, padding: "14px 18px", marginBottom: 20,
+    display: "flex", alignItems: "center", gap: 12,
   }),
-  bannerText: { fontSize: 18, fontWeight: 700, color: "#fff" },
-  controls: { display: "flex", gap: 12, marginBottom: 16, flexWrap: "wrap" },
-  select: { background: "#1a1a1a", border: "1px solid #333", borderRadius: 6, padding: "8px 12px", color: "#f0f0f0", fontSize: 14 },
-  btn: { background: "#c0392b", border: "none", borderRadius: 6, padding: "8px 16px", color: "#fff", fontSize: 14, cursor: "pointer", fontWeight: 600 },
-  table: { width: "100%", borderCollapse: "collapse" },
-  th: { textAlign: "left", padding: "8px 12px", fontSize: 12, color: "#666", borderBottom: "1px solid #2a2a2a" },
-  td: { padding: "8px 12px", fontSize: 13, borderBottom: "1px solid #1a1a1a" },
-  err: { color: "#e74c3c", fontSize: 13 },
-  loading: { color: "#666", fontSize: 13 },
+  bannerText: (need) => ({ fontFamily: BL.sans, fontSize: 15, fontWeight: 600, color: BL.need[need].fg }),
+  controls:   { display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap", alignItems: "center" },
+  select:     {
+    background: BL.card, border: `1px solid ${BL.rule}`, borderRadius: 6,
+    padding: "8px 12px", color: BL.ink, fontSize: 13, fontFamily: BL.sans, outline: "none",
+  },
+  btn:        {
+    background: BL.ink, border: "none", borderRadius: 6, padding: "8px 16px",
+    color: "#fff", fontSize: 13, fontFamily: BL.sans, fontWeight: 500, cursor: "pointer",
+  },
+  sectionLabel: { fontFamily: BL.mono, fontSize: 10, color: BL.muted, letterSpacing: 0.6, textTransform: "uppercase", marginBottom: 8 },
+  table:      { width: "100%", borderCollapse: "collapse", fontFamily: BL.sans, fontSize: 13 },
+  th:         { textAlign: "left", padding: "8px 12px", fontFamily: BL.mono, fontSize: 10, color: BL.muted, borderBottom: `1px solid ${BL.hair}`, letterSpacing: 0.4 },
+  td:         { padding: "8px 12px", borderBottom: `1px solid ${BL.hair}`, color: BL.ink2 },
+  err:        { fontFamily: BL.sans, color: BL.need.critical.fg, fontSize: 13 },
+  loading:    { fontFamily: BL.sans, color: BL.muted, fontSize: 13 },
+  typeHead:   { fontFamily: BL.sans, fontWeight: 600, color: BL.ink, marginBottom: 8, marginTop: 20, fontSize: 13 },
 };
 
 export default function PredictPanel() {
@@ -59,37 +71,47 @@ export default function PredictPanel() {
     }
   }
 
+  const nationalNeed = riskToNeed(status?.nationalStatus);
+
   return (
     <div>
       <div style={s.section}>
-        <div style={s.title}>National Blood Status</div>
-        <div style={s.sub}>Current stock levels across all blood types</div>
+        <div style={s.pageTitle}>National Blood Status</div>
+        <div style={s.pageSub}>Current stock levels across all blood types</div>
 
         {statusLoading && <div style={s.loading}>Loading status…</div>}
         {status && (
           <>
-            <div style={s.banner(status.nationalStatus)}>
-              <span style={{ fontSize: 24 }}>🩸</span>
-              <span style={s.bannerText}>
-                National status: {status.nationalStatus.toUpperCase()} — {status.asOf}
+            <div style={s.banner(nationalNeed)}>
+              <div style={{
+                width: 8, height: 8, borderRadius: 4,
+                background: BL.need[nationalNeed].fg, flexShrink: 0,
+              }} />
+              <span style={s.bannerText(nationalNeed)}>
+                National status: {status.nationalStatus?.toUpperCase()} — {status.asOf}
               </span>
             </div>
-            <div style={s.statusRow}>
-              {status.byBloodType?.map(item => (
-                <div key={item.bloodType} style={s.chip(item.riskLevel)}>
-                  <div style={s.chipType}>{item.bloodType}</div>
-                  <div style={s.chipRisk(item.riskLevel)}>{item.riskLevel}</div>
-                  <div style={s.chipUnits}>{item.units} units</div>
-                </div>
-              ))}
+
+            <div style={s.sectionLabel}>By blood type</div>
+            <div style={s.chipGrid}>
+              {status.byBloodType?.map(item => {
+                const need = riskToNeed(item.riskLevel);
+                return (
+                  <div key={item.bloodType} style={s.chip(need)}>
+                    <div style={s.chipType}>{item.bloodType}</div>
+                    <div style={s.chipRisk(need)}>{item.riskLevel}</div>
+                    <div style={s.chipUnits}>{item.units} units</div>
+                  </div>
+                );
+              })}
             </div>
           </>
         )}
       </div>
 
       <div style={s.section}>
-        <div style={s.title}>14-Day Forecast</div>
-        <div style={s.sub}>Projected shortage risk per blood type</div>
+        <div style={s.pageTitle}>14-Day Forecast</div>
+        <div style={s.pageSub}>Projected shortage risk per blood type</div>
         <div style={s.controls}>
           <select style={s.select} value={selectedType} onChange={e => setSelectedType(e.target.value)}>
             <option value="">All blood types</option>
@@ -103,26 +125,36 @@ export default function PredictPanel() {
         {error && <div style={s.err}>{error}</div>}
 
         {forecast && Object.entries(forecast.forecast).map(([type, days]) => (
-          <div key={type} style={{ marginBottom: 24 }}>
-            <div style={{ fontWeight: 700, marginBottom: 8, color: "#ccc" }}>Blood Type {type}</div>
+          <div key={type} style={s.card}>
+            <div style={s.typeHead}>Blood Type {type}</div>
             <table style={s.table}>
               <thead>
                 <tr>
-                  <th style={s.th}>Date</th>
-                  <th style={s.th}>Projected Units</th>
-                  <th style={s.th}>Risk Level</th>
+                  <th style={s.th}>DATE</th>
+                  <th style={s.th}>PROJECTED UNITS</th>
+                  <th style={s.th}>RISK LEVEL</th>
                 </tr>
               </thead>
               <tbody>
-                {days.map(day => (
-                  <tr key={day.date}>
-                    <td style={s.td}>{day.date}</td>
-                    <td style={s.td}>{day.projectedUnits}</td>
-                    <td style={{ ...s.td, color: RISK_COLOR[day.riskLevel], fontWeight: 600 }}>
-                      {day.riskLevel}
-                    </td>
-                  </tr>
-                ))}
+                {days.map(day => {
+                  const need = riskToNeed(day.riskLevel);
+                  return (
+                    <tr key={day.date}>
+                      <td style={s.td}>{day.date}</td>
+                      <td style={{ ...s.td, fontFamily: BL.mono }}>{day.projectedUnits}</td>
+                      <td style={s.td}>
+                        <span style={{
+                          fontFamily: BL.mono, fontSize: 11, fontWeight: 600,
+                          color: BL.need[need].fg,
+                          background: BL.need[need].bg,
+                          padding: "2px 7px", borderRadius: 3,
+                        }}>
+                          {day.riskLevel}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

@@ -1,19 +1,31 @@
 import { useState, useEffect } from "react";
 import { getPendingDrives, approveDrive, rejectDrive } from "../../api";
+import { BL } from "../../tokens";
 
 const s = {
-  title: { fontSize: 22, fontWeight: 700, marginBottom: 4 },
-  sub: { color: "#555", fontSize: 13, marginBottom: 24 },
-  card: { background: "#12121a", border: "1px solid #1e1e2e", borderRadius: 10, padding: 20, marginBottom: 12 },
-  cardTitle: { fontWeight: 700, fontSize: 15, marginBottom: 4 },
-  meta: { color: "#666", fontSize: 12, marginBottom: 14 },
-  tag: { display: "inline-block", background: "#1e1e2e", borderRadius: 4, padding: "2px 8px", fontSize: 11, color: "#888", marginRight: 6 },
-  actions: { display: "flex", gap: 8 },
-  btnApprove: { padding: "7px 18px", background: "#1a3a1a", border: "1px solid #2ecc71", color: "#2ecc71", borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: "pointer" },
-  btnReject: { padding: "7px 18px", background: "#1a0a0a", border: "1px solid #c0392b", color: "#c0392b", borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: "pointer" },
-  empty: { color: "#555", fontSize: 13 },
-  ok: { color: "#2ecc71", fontSize: 12, marginTop: 8 },
-  err: { color: "#e74c3c", fontSize: 12, marginTop: 8 },
+  pageTitle:   { fontFamily: BL.sans, fontSize: 22, fontWeight: 600, color: BL.ink, letterSpacing: -0.3, marginBottom: 4 },
+  pageSub:     { fontFamily: BL.sans, fontSize: 13, color: BL.muted, marginBottom: 24 },
+  card:        { background: BL.card, border: `1px solid ${BL.hair}`, borderRadius: 6, padding: 18, marginBottom: 10 },
+  cardTitle:   { fontFamily: BL.sans, fontWeight: 600, fontSize: 15, color: BL.ink, marginBottom: 4 },
+  meta:        { fontFamily: BL.mono, fontSize: 10, color: BL.muted, marginBottom: 12, letterSpacing: 0.4 },
+  typeTag:     {
+    display: "inline-block", background: BL.fill, borderRadius: 3,
+    padding: "2px 7px", fontFamily: BL.mono, fontSize: 10, color: BL.ink2, marginRight: 5, marginBottom: 10,
+  },
+  actions:     { display: "flex", gap: 8 },
+  btnApprove:  {
+    padding: "7px 18px", background: BL.need.ok.bg,
+    border: `1px solid ${BL.need.ok.fg}`, color: BL.need.ok.fg,
+    borderRadius: 6, fontSize: 13, fontFamily: BL.sans, fontWeight: 600, cursor: "pointer",
+  },
+  btnReject:   {
+    padding: "7px 18px", background: BL.need.critical.bg,
+    border: `1px solid ${BL.need.critical.fg}`, color: BL.need.critical.fg,
+    borderRadius: 6, fontSize: 13, fontFamily: BL.sans, fontWeight: 600, cursor: "pointer",
+  },
+  empty:       { fontFamily: BL.sans, color: BL.faint, fontSize: 13 },
+  ok:          { fontFamily: BL.sans, color: BL.need.ok.fg, fontSize: 12, marginTop: 8 },
+  err:         { fontFamily: BL.sans, color: BL.need.critical.fg, fontSize: 12, marginTop: 8 },
 };
 
 export default function DrivesPanel() {
@@ -41,8 +53,8 @@ export default function DrivesPanel() {
 
   return (
     <div>
-      <div style={s.title}>Drive Approval Queue</div>
-      <div style={s.sub}>Community blood drives awaiting HSA approval</div>
+      <div style={s.pageTitle}>Community drive queue</div>
+      <div style={s.pageSub}>Blood drives pending HSA approval — approve, decline, or request edits.</div>
 
       {loading && <div style={s.empty}>Loading…</div>}
       {!loading && drives.length === 0 && <div style={s.empty}>No drives pending approval.</div>}
@@ -55,8 +67,8 @@ export default function DrivesPanel() {
             <div style={s.meta}>
               {drive.location} · {drive.date} · Capacity: {drive.capacity}
             </div>
-            <div style={{ marginBottom: 14 }}>
-              {drive.acceptedBloodTypes?.map(t => <span key={t} style={s.tag}>{t}</span>)}
+            <div>
+              {drive.acceptedBloodTypes?.map(t => <span key={t} style={s.typeTag}>{t}</span>)}
             </div>
             {as.done ? (
               <div style={s.ok}>✓ Drive {as.done}d</div>
@@ -66,7 +78,7 @@ export default function DrivesPanel() {
                   {as.loading ? "…" : "Approve"}
                 </button>
                 <button style={s.btnReject} onClick={() => handleAction(drive.driveId, "reject")} disabled={as.loading}>
-                  Reject
+                  Decline
                 </button>
               </div>
             )}

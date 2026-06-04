@@ -1,10 +1,9 @@
 import { useState } from "react";
-import PredictPanel from "./PredictPanel";
-import SurgePanel from "./SurgePanel";
-import SchedulePanel from "./SchedulePanel";
-import RetainPanel from "./RetainPanel";
+import { BL } from "../tokens";
+import HomePanel from "./HomePanel";
+import DonorDrivesPanel from "./DonorDrivesPanel";
+import ImpactPanel from "./ImpactPanel";
 import DonorPanel from "./DonorPanel";
-import TestPanel from "./TestPanel";
 import OverviewPanel from "./admin/OverviewPanel";
 import AdminSurgePanel from "./admin/SurgePanel";
 import DrivesPanel from "./admin/DrivesPanel";
@@ -14,7 +13,6 @@ import DemandPanel from "./admin/DemandPanel";
 function isAdmin(token) {
   if (!token) return false;
   try {
-    // JWT uses base64url — replace chars and add padding before decoding
     const base64url = token.split(".")[1];
     const base64 = base64url.replaceAll("-", "+").replaceAll("_", "/").padEnd(
       base64url.length + (4 - (base64url.length % 4)) % 4, "="
@@ -27,71 +25,186 @@ function isAdmin(token) {
 }
 
 const DONOR_TABS = [
-  { id: "predict",  label: "Predict" },
-  { id: "surge",    label: "Surge" },
-  { id: "schedule", label: "Schedule" },
-  { id: "retain",   label: "Retain" },
-  { id: "donor",    label: "Profile" },
-  { id: "test",     label: "🔧 Test" },
+  { id: "home",    label: "Home" },
+  { id: "drives",  label: "Drives" },
+  { id: "impact",  label: "Impact" },
+  { id: "profile", label: "You" },
 ];
 
 const ADMIN_TABS = [
-  { id: "overview", label: "Overview" },
-  { id: "asurge",   label: "Surge Control" },
-  { id: "drives",   label: "Drive Approvals" },
-  { id: "donors",   label: "Donor Pool" },
-  { id: "demand",   label: "Hospital Demand" },
+  { id: "overview", label: "Forecast" },
+  { id: "asurge",   label: "Surge Mode" },
+  { id: "adrives",  label: "Drive queue" },
+  { id: "donors",   label: "Donor pool" },
+  { id: "demand",   label: "Hospital demand" },
 ];
 
-const s = {
-  root: { minHeight: "100vh", background: "#0f0f0f" },
-  header: { background: "#1a1a1a", borderBottom: "1px solid #2a2a2a", padding: "0 20px", display: "flex", alignItems: "center", gap: 12 },
-  logo: { color: "#c0392b", fontWeight: 700, fontSize: 20, padding: "14px 0", flex: 1 },
-  adminBadge: { background: "#2a0a0a", color: "#c0392b", border: "1px solid #c0392b33", borderRadius: 4, fontSize: 11, padding: "2px 8px" },
-  logout: { background: "none", border: "1px solid #333", color: "#888", borderRadius: 6, padding: "6px 14px", cursor: "pointer", fontSize: 13 },
-  nav: { display: "flex", gap: 4, padding: "0 20px", background: "#1a1a1a", borderBottom: "1px solid #2a2a2a", overflowX: "auto" },
-  navBtn: (active) => ({
-    background: "none", border: "none", cursor: "pointer", padding: "12px 16px", fontSize: 14, fontWeight: active ? 700 : 400,
-    color: active ? "#c0392b" : "#888", borderBottom: active ? "2px solid #c0392b" : "2px solid transparent",
-    whiteSpace: "nowrap",
-  }),
-  content: { maxWidth: 1100, margin: "0 auto", padding: 24 },
-};
+function PanelContent({ tab }) {
+  if (tab === "home")     return <HomePanel />;
+  if (tab === "drives")   return <DonorDrivesPanel />;
+  if (tab === "impact")   return <ImpactPanel />;
+  if (tab === "profile")  return <DonorPanel />;
+  if (tab === "overview") return <OverviewPanel />;
+  if (tab === "asurge")   return <AdminSurgePanel />;
+  if (tab === "adrives")  return <DrivesPanel />;
+  if (tab === "donors")   return <DonorsPanel />;
+  if (tab === "demand")   return <DemandPanel />;
+  return null;
+}
+
+// ── Admin layout: dark left sidebar + light content (mirrors ConsoleShell) ──
+function AdminDashboard({ tab, setTab, onLogout }) {
+  const activeLabel = ADMIN_TABS.find(t => t.id === tab)?.label ?? "";
+
+  return (
+    <div style={{ display: "flex", minHeight: "100vh", fontFamily: BL.sans }}>
+      {/* Left rail */}
+      <div style={{
+        width: 200, background: "#1a1917", color: "#e9e6e0",
+        display: "flex", flexDirection: "column", flexShrink: 0,
+      }}>
+        <div style={{ padding: "18px 16px 12px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <div style={{ width: 18, height: 18, borderRadius: 3, background: BL.red }} />
+            <span style={{ fontFamily: BL.sans, fontSize: 14, fontWeight: 600 }}>BloodLine</span>
+          </div>
+          <div style={{ fontFamily: BL.mono, fontSize: 9, color: "#8e8a82", marginTop: 4, letterSpacing: 0.8 }}>
+            HSA OPERATIONS · PROD
+          </div>
+        </div>
+
+        <div style={{ padding: "8px", flex: 1 }}>
+          {ADMIN_TABS.map(t => (
+            <button
+              key={t.id}
+              onClick={() => setTab(t.id)}
+              style={{
+                display: "block", width: "100%", textAlign: "left",
+                padding: "8px 12px", borderRadius: 4, marginBottom: 2, cursor: "pointer",
+                background: tab === t.id ? "#2a2723" : "transparent",
+                fontFamily: BL.sans, fontSize: 13, border: "none",
+                color: tab === t.id ? "#fff" : "#bdb8b0",
+                borderLeft: tab === t.id ? `2px solid ${BL.red}` : "2px solid transparent",
+              }}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        <div style={{ padding: "12px 16px", borderTop: "1px solid #2a2723" }}>
+          <div style={{ fontFamily: BL.mono, fontSize: 9, color: "#8e8a82", marginBottom: 8, letterSpacing: 0.8 }}>
+            HSA ADMIN · PROD
+          </div>
+          <button
+            onClick={onLogout}
+            style={{
+              width: "100%", background: "none", border: "1px solid #2a2723",
+              color: "#8e8a82", borderRadius: 6, padding: "6px 0",
+              cursor: "pointer", fontSize: 12, fontFamily: BL.sans,
+            }}
+          >
+            Sign out
+          </button>
+        </div>
+      </div>
+
+      {/* Main content */}
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
+        {/* Top header bar */}
+        <div style={{
+          height: 48, borderBottom: `1px solid ${BL.hair}`,
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          padding: "0 24px", background: BL.card, flexShrink: 0,
+        }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+            <span style={{ fontFamily: BL.mono, fontSize: 10, color: BL.muted, letterSpacing: 0.8 }}>
+              HSA · NATIONAL OPERATIONS
+            </span>
+            <span style={{ color: BL.faint }}>/</span>
+            <span style={{ fontFamily: BL.mono, fontSize: 10, color: BL.ink }}>
+              {activeLabel.toUpperCase()}
+            </span>
+          </div>
+          <span style={{ fontFamily: BL.sans, fontSize: 12, color: BL.muted }}>
+            {new Date().toLocaleString("en-SG", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
+          </span>
+        </div>
+
+        {/* Panel content */}
+        <div style={{ flex: 1, overflowY: "auto", background: BL.paper }}>
+          <div style={{ maxWidth: 1100, padding: 24 }}>
+            <PanelContent tab={tab} />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Donor layout: light top nav ──────────────────────────────────────────────
+function DonorDashboard({ tab, setTab, onLogout }) {
+  return (
+    <div style={{ minHeight: "100vh", background: BL.paper, fontFamily: BL.sans }}>
+      {/* Header */}
+      <div style={{
+        background: BL.card, borderBottom: `1px solid ${BL.hair}`,
+        padding: "0 24px", display: "flex", alignItems: "center", gap: 12,
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1, padding: "14px 0" }}>
+          <div style={{ width: 16, height: 16, borderRadius: 3, background: BL.red }} />
+          <span style={{ fontSize: 15, fontWeight: 700, color: BL.ink, letterSpacing: -0.2 }}>BloodLine</span>
+        </div>
+        <button
+          onClick={onLogout}
+          style={{
+            background: "none", border: `1px solid ${BL.hair}`, color: BL.muted,
+            borderRadius: 6, padding: "6px 14px", cursor: "pointer", fontSize: 13,
+            fontFamily: BL.sans,
+          }}
+        >
+          Sign out
+        </button>
+      </div>
+
+      {/* Tab nav */}
+      <div style={{
+        display: "flex", padding: "0 24px", background: BL.card,
+        borderBottom: `1px solid ${BL.hair}`, overflowX: "auto",
+      }}>
+        {DONOR_TABS.map(t => (
+          <button
+            key={t.id}
+            onClick={() => setTab(t.id)}
+            style={{
+              background: "none", border: "none", cursor: "pointer",
+              padding: "12px 16px", fontSize: 13, fontFamily: BL.sans,
+              fontWeight: tab === t.id ? 600 : 400,
+              color: tab === t.id ? BL.red : BL.muted,
+              borderBottom: tab === t.id ? `2px solid ${BL.red}` : "2px solid transparent",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Panel content */}
+      <div style={{ maxWidth: 1100, margin: "0 auto", padding: 24 }}>
+        <PanelContent tab={tab} />
+      </div>
+    </div>
+  );
+}
 
 export default function Dashboard({ token, onLogout }) {
   const admin = isAdmin(token);
   const tabs = admin ? ADMIN_TABS : DONOR_TABS;
   const [tab, setTab] = useState(tabs[0].id);
 
-  return (
-    <div style={s.root}>
-      <div style={s.header}>
-        <div style={s.logo}>🩸 Bloodline</div>
-        {admin && <div style={s.adminBadge}>HSA Admin</div>}
-        <button style={s.logout} onClick={onLogout}>Sign out</button>
-      </div>
-      <div style={s.nav}>
-        {tabs.map(t => (
-          <button key={t.id} style={s.navBtn(tab === t.id)} onClick={() => setTab(t.id)}>
-            {t.label}
-          </button>
-        ))}
-      </div>
-      <div style={s.content}>
-        {/* Donor views */}
-        {tab === "predict"  && <PredictPanel />}
-        {tab === "surge"    && <SurgePanel />}
-        {tab === "schedule" && <SchedulePanel />}
-        {tab === "retain"   && <RetainPanel />}
-        {tab === "donor"    && <DonorPanel />}
-        {tab === "test"     && <TestPanel />}
-        {/* Admin views */}
-        {tab === "overview" && <OverviewPanel />}
-        {tab === "asurge"   && <AdminSurgePanel />}
-        {tab === "drives"   && <DrivesPanel />}
-        {tab === "donors"   && <DonorsPanel />}
-        {tab === "demand"   && <DemandPanel />}
-      </div>
-    </div>
-  );
+  if (admin) {
+    return <AdminDashboard tab={tab} setTab={setTab} onLogout={onLogout} />;
+  }
+  return <DonorDashboard tab={tab} setTab={setTab} onLogout={onLogout} />;
 }

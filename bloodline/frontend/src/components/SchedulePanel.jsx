@@ -1,26 +1,42 @@
 import { useState, useEffect } from "react";
 import { getDrives, createBooking } from "../api";
+import { BL } from "../tokens";
 
 const BLOOD_TYPES = ["", "A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"];
 
 const s = {
-  title: { fontSize: 22, fontWeight: 700, marginBottom: 4 },
-  sub: { color: "#666", fontSize: 13, marginBottom: 20 },
-  controls: { display: "flex", gap: 12, marginBottom: 20, flexWrap: "wrap", alignItems: "center" },
-  select: { background: "#1a1a1a", border: "1px solid #333", borderRadius: 6, padding: "8px 12px", color: "#f0f0f0", fontSize: 14 },
-  btn: { background: "#c0392b", border: "none", borderRadius: 6, padding: "8px 16px", color: "#fff", fontSize: 14, fontWeight: 600, cursor: "pointer" },
-  btnSmall: { background: "#c0392b", border: "none", borderRadius: 6, padding: "6px 14px", color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer" },
-  card: { background: "#1a1a1a", border: "1px solid #2a2a2a", borderRadius: 10, padding: 20, marginBottom: 12 },
-  cardTitle: { fontWeight: 700, fontSize: 16, marginBottom: 4 },
-  cardMeta: { color: "#888", fontSize: 12, marginBottom: 12 },
-  capacity: { fontSize: 12, color: "#666", marginBottom: 12 },
-  bar: { background: "#2a2a2a", borderRadius: 4, height: 6, marginBottom: 12, overflow: "hidden" },
-  barFill: (pct) => ({ height: "100%", width: `${Math.min(100, pct)}%`, background: pct > 80 ? "#e67e22" : "#c0392b", borderRadius: 4 }),
+  pageTitle:  { fontFamily: BL.sans, fontSize: 22, fontWeight: 600, color: BL.ink, letterSpacing: -0.3, marginBottom: 4 },
+  pageSub:    { fontFamily: BL.sans, fontSize: 13, color: BL.muted, marginBottom: 20 },
+  controls:   { display: "flex", gap: 10, marginBottom: 20, flexWrap: "wrap", alignItems: "center" },
+  select:     {
+    background: BL.card, border: `1px solid ${BL.rule}`, borderRadius: 6,
+    padding: "8px 12px", color: BL.ink, fontSize: 13, fontFamily: BL.sans, outline: "none",
+  },
+  btn:        {
+    background: BL.ink, border: "none", borderRadius: 6, padding: "8px 16px",
+    color: "#fff", fontSize: 13, fontFamily: BL.sans, fontWeight: 500, cursor: "pointer",
+  },
+  btnSmall:   {
+    background: BL.ink, border: "none", borderRadius: 6, padding: "6px 14px",
+    color: "#fff", fontSize: 13, fontFamily: BL.sans, fontWeight: 500, cursor: "pointer",
+  },
+  card:       { background: BL.card, border: `1px solid ${BL.hair}`, borderRadius: 6, padding: 20, marginBottom: 10 },
+  cardTitle:  { fontFamily: BL.sans, fontWeight: 600, fontSize: 15, color: BL.ink, marginBottom: 4 },
+  cardMeta:   { fontFamily: BL.mono, fontSize: 10, color: BL.muted, marginBottom: 12, letterSpacing: 0.4 },
+  capacity:   { fontFamily: BL.mono, fontSize: 11, color: BL.muted, marginBottom: 10 },
+  barTrack:   { background: BL.fill, borderRadius: 3, height: 5, marginBottom: 12, overflow: "hidden" },
+  barFill:    (pct) => ({
+    height: "100%", width: `${Math.min(100, pct)}%`,
+    background: pct > 80 ? BL.need.urgent.fg : BL.ink, borderRadius: 3,
+  }),
   bookingRow: { display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" },
-  input: { background: "#111", border: "1px solid #333", borderRadius: 6, padding: "7px 10px", color: "#f0f0f0", fontSize: 13 },
-  ok: { color: "#2ecc71", fontSize: 13, marginTop: 8 },
-  err: { color: "#e74c3c", fontSize: 13, marginTop: 8 },
-  empty: { color: "#555", fontSize: 13 },
+  input:      {
+    background: BL.card, border: `1px solid ${BL.rule}`, borderRadius: 6,
+    padding: "7px 10px", color: BL.ink, fontSize: 13, fontFamily: BL.sans, outline: "none",
+  },
+  ok:         { fontFamily: BL.sans, color: BL.need.ok.fg, fontSize: 13, marginTop: 8 },
+  err:        { fontFamily: BL.sans, color: BL.need.critical.fg, fontSize: 13, marginTop: 8 },
+  empty:      { fontFamily: BL.sans, color: BL.faint, fontSize: 13 },
 };
 
 export default function SchedulePanel() {
@@ -28,7 +44,7 @@ export default function SchedulePanel() {
   const [drives, setDrives] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [bookingState, setBookingState] = useState({});  // { [driveId]: { slot, loading, result, error } }
+  const [bookingState, setBookingState] = useState({});
 
   useEffect(() => { loadDrives(); }, []);
 
@@ -62,8 +78,8 @@ export default function SchedulePanel() {
 
   return (
     <div>
-      <div style={s.title}>Blood Drives Near You</div>
-      <div style={s.sub}>Find and book a slot at upcoming blood drives</div>
+      <div style={s.pageTitle}>Blood Drives Near You</div>
+      <div style={s.pageSub}>Find and book a slot at upcoming blood drives</div>
 
       <div style={s.controls}>
         <select style={s.select} value={bloodTypeFilter} onChange={e => setBloodTypeFilter(e.target.value)}>
@@ -87,7 +103,7 @@ export default function SchedulePanel() {
               {drive.location} · {drive.date} · {drive.acceptedBloodTypes?.join(", ")}
             </div>
             <div style={s.capacity}>{drive.booked ?? 0} / {drive.capacity ?? "?"} slots booked</div>
-            <div style={s.bar}><div style={s.barFill(pct)} /></div>
+            <div style={s.barTrack}><div style={s.barFill(pct)} /></div>
 
             {bs.result ? (
               <div style={s.ok}>✓ Booked for {bs.result.slotTime} — bring a friend!</div>
