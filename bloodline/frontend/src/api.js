@@ -37,6 +37,11 @@ export const getDrives = (bloodType) =>
 export const createBooking = (body) =>
   request("/api/v1/schedule/book", { method: "POST", body: JSON.stringify(body) });
 
+// Hospital
+export const createDrive = (body) =>
+  request("/api/v1/schedule/drives", { method: "POST", body: JSON.stringify(body) });
+export const getHospitalDrives = () => request("/api/v1/hospital/drives");
+
 // Retain
 export const getRetainStats = () => request("/api/v1/retain/stats");
 
