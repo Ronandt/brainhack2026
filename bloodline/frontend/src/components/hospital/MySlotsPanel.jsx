@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { getHospitalDrives } from "../../api";
+import { getDrives } from "../../api";
 import { BL } from "../../tokens";
 
 const s = {
@@ -36,7 +36,7 @@ export default function MySlotsPanel() {
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    getHospitalDrives()
+    getDrives()
       .then(d => setDrives(d.drives ?? []))
       .catch(e => setError(e.message))
       .finally(() => setLoading(false));

@@ -16,10 +16,28 @@ const BADGE_BG = {
   honorary: "#fef9c3", gold: "#fef3c7", silver: "#f1f5f9", bronze: "#fdf0e8", none: BL.fill,
 };
 
+function AppHeader({ sub, title, right }) {
+  return (
+    <div style={{ padding: "0 0 10px", display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}>
+      <div>
+        {sub && (
+          <div style={{ fontFamily: BL.mono, fontSize: 9, letterSpacing: 0.6, textTransform: "uppercase", color: BL.muted, marginBottom: 2 }}>
+            {sub}
+          </div>
+        )}
+        <div style={{ fontFamily: BL.sans, fontSize: 22, fontWeight: 600, color: BL.ink, letterSpacing: -0.4, lineHeight: 1.2 }}>
+          {title}
+        </div>
+      </div>
+      {right}
+    </div>
+  );
+}
+
 function Tag({ children, color }) {
   return (
     <span style={{
-      fontFamily: BL.mono, fontSize: 10, letterSpacing: 0.6, textTransform: "uppercase",
+      fontFamily: BL.mono, fontSize: 9, letterSpacing: 0.6, textTransform: "uppercase",
       color: color || BL.muted,
     }}>
       {children}
@@ -30,8 +48,8 @@ function Tag({ children, color }) {
 function Card({ children, style }) {
   return (
     <div style={{
-      background: BL.card, border: `1px solid ${BL.hair}`, borderRadius: 8,
-      padding: 16, marginBottom: 12, ...style,
+      background: BL.card, border: `1px solid ${BL.hair}`, borderRadius: 6,
+      padding: 16, marginBottom: 10, ...style,
     }}>
       {children}
     </div>
@@ -69,27 +87,20 @@ export default function ImpactPanel() {
 
   return (
     <div>
-      {/* Header */}
-      <div style={{ marginBottom: 20 }}>
-        <div style={{ fontFamily: BL.sans, fontSize: 22, fontWeight: 600, color: BL.ink, letterSpacing: -0.3, marginBottom: 4 }}>
-          Your impact
-        </div>
-        <div style={{ fontFamily: BL.mono, fontSize: 10, color: BL.muted, letterSpacing: 0.6, textTransform: "uppercase" }}>
-          Lifetime · {total} donation{total !== 1 ? "s" : ""}
-        </div>
-      </div>
-
-      {/* Streak badge */}
-      {streak > 0 && (
-        <div style={{
-          display: "inline-block", background: BL.surgeBg,
-          border: `1px solid ${BL.surge}44`, borderRadius: 20,
-          padding: "5px 16px", fontFamily: BL.sans, fontSize: 13,
-          color: BL.surge, marginBottom: 16, fontWeight: 500,
-        }}>
-          {streak}-donation streak
-        </div>
-      )}
+      <AppHeader
+        sub={`Lifetime · ${total} donation${total !== 1 ? "s" : ""}`}
+        title="Your impact"
+        right={streak > 0 ? (
+          <div style={{
+            fontFamily: BL.mono, fontSize: 9, letterSpacing: 0.4, textTransform: "uppercase",
+            color: BL.surge, background: BL.surgeBg,
+            border: `1px solid ${BL.surge}33`, borderRadius: 20,
+            padding: "4px 10px", whiteSpace: "nowrap", marginTop: 4,
+          }}>
+            {streak} streak
+          </div>
+        ) : null}
+      />
 
       {/* Last donation impact */}
       {impact && (
