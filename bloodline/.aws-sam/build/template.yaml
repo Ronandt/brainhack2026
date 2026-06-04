@@ -441,6 +441,13 @@ Resources:
           TableName:
             Ref: BloodDrivesTable
       Events:
+        ListHospitalDrives:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: BloodlineApi
+            Path: /api/v1/hospital/drives
+            Method: GET
         ListDrives:
           Type: Api
           Properties:
@@ -448,6 +455,13 @@ Resources:
               Ref: BloodlineApi
             Path: /api/v1/schedule/drives
             Method: GET
+        CreateDrive:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: BloodlineApi
+            Path: /api/v1/schedule/drives
+            Method: POST
         CreateBooking:
           Type: Api
           Properties:
