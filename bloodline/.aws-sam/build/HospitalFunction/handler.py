@@ -2,6 +2,7 @@ import json
 import os
 import uuid
 from datetime import datetime
+from decimal import Decimal
 
 import boto3
 from boto3.dynamodb.conditions import Attr
@@ -33,6 +34,10 @@ def lambda_handler(event: dict, context: LambdaContext) -> dict:
     method = event["httpMethod"]
     path = event.get("path", "")
 
+    # Public hospital directory — must check before /hospital/* routes
+    if path.endswith("/hospitals") and method == "GET":
+        return _list_hospitals(event)
+
     if "/profile" in path and method == "GET":
         return _get_profile(event)
     if "/profile" in path and method == "PUT":
@@ -45,13 +50,33 @@ def lambda_handler(event: dict, context: LambdaContext) -> dict:
     return _response(404, {"error": "Not found"})
 
 
+def _list_hospitals(_event: dict) -> dict:
+    result = hospitals_table.scan(
+        ProjectionExpression="hospitalId, #loc, lat, lng",
+        ExpressionAttributeNames={"#loc": "location"},
+    )
+    hospitals = []
+    for item in result.get("Items", []):
+        hospitals.append({
+            "hospitalId": item["hospitalId"],
+            "location": item.get("location", ""),
+            "lat": float(item["lat"]) if item.get("lat") is not None else None,
+            "lng": float(item["lng"]) if item.get("lng") is not None else None,
+        })
+    return _response(200, {"hospitals": hospitals})
+
+
 def _get_profile(event: dict) -> dict:
     hid = _hospital_id(event)
     result = hospitals_table.get_item(Key={"hospitalId": hid})
     item = result.get("Item")
     if not item:
         return _response(200, {"profile": None})
-    return _response(200, {"profile": {"location": item.get("location", "")}})
+    return _response(200, {"profile": {
+        "location": item.get("location", ""),
+        "lat": float(item["lat"]) if item.get("lat") is not None else None,
+        "lng": float(item["lng"]) if item.get("lng") is not None else None,
+    }})
 
 
 def _update_profile(event: dict) -> dict:
@@ -60,9 +85,18 @@ def _update_profile(event: dict) -> dict:
     location = (body.get("location") or "").strip()
     if not location:
         return _response(400, {"error": "location is required"})
-    hospitals_table.put_item(Item={"hospitalId": hid, "location": location})
-    logger.info("Hospital profile updated", hospital_id=hid, location=location)
-    return _response(200, {"location": location})
+
+    lat = body.get("lat")
+    lng = body.get("lng")
+
+    item = {"hospitalId": hid, "location": location}
+    if lat is not None and lng is not None:
+        item["lat"] = Decimal(str(lat))
+        item["lng"] = Decimal(str(lng))
+
+    hospitals_table.put_item(Item=item)
+    logger.info("Hospital profile updated", hospital_id=hid, location=location, lat=lat, lng=lng)
+    return _response(200, {"location": location, "lat": lat, "lng": lng})
 
 
 def _list_drives(event: dict) -> dict:
@@ -95,7 +129,7 @@ def _create_drive(event: dict) -> dict:
     drive_id = str(uuid.uuid4())
     now = datetime.utcnow().isoformat()
 
-    drives_table.put_item(Item={
+    drive_item = {
         "driveId": drive_id,
         "hospitalId": hid,
         "location": profile["location"],
@@ -109,7 +143,11 @@ def _create_drive(event: dict) -> dict:
         "notes": body.get("notes", ""),
         "status": "pending",
         "createdAt": now,
-    })
+    }
+    if profile.get("lat") is not None:
+        drive_item["lat"] = profile["lat"]
+        drive_item["lng"] = profile["lng"]
 
+    drives_table.put_item(Item=drive_item)
     logger.info("Blood drive created", drive_id=drive_id, hospital_id=hid)
     return _response(201, {"driveId": drive_id, "status": "pending"})

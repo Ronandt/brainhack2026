@@ -583,6 +583,12 @@ Resources:
             RestApiId: !Ref BloodlineApi
             Path: /api/v1/hospital/drives
             Method: POST
+        ListHospitals:
+          Type: Api
+          Properties:
+            RestApiId: !Ref BloodlineApi
+            Path: /api/v1/hospitals
+            Method: GET
 
   DiagnosticsFunction:
     Type: AWS::Serverless::Function

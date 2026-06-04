@@ -67,14 +67,14 @@ export default function CreateSlotPanel({ hospitalName }) {
   return (
     <div style={{ maxWidth: 640 }}>
       <div style={s.pageTitle}>Create a donation slot</div>
-      <div style={s.pageSub}>Add a new drive. Donors can book it once submitted — approved slots appear in the schedule immediately.</div>
+      <div style={s.pageSub}>Add a new donation slots. Donors can book it once submitted — approved slots appear in the schedule immediately.</div>
 
       <form onSubmit={submit}>
         <div style={s.group}>
-          <label style={s.label}>Drive name</label>
+          <label style={s.label}>Slot name</label>
           <input
             style={s.input}
-            placeholder="e.g. SGH · Donation Drive Jun 2026"
+            placeholder="e.g. SGH · Donation Slot Jun 2026"
             value={form.name}
             onChange={e => field("name", e.target.value)}
             required
