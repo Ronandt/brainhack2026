@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { BL } from "../tokens";
 import HomePanel from "./HomePanel";
 import DonorDrivesPanel from "./DonorDrivesPanel";
@@ -66,7 +66,7 @@ function PanelContent({ tab, hospitalName }) {
   if (tab === "home")     return <HomePanel />;
   if (tab === "drives")   return <DonorDrivesPanel />;
   if (tab === "impact")   return <ImpactPanel />;
-  if (tab === "profile")  return <DonorPanel />;
+  if (tab === "profile")  return <DonorPanel onLogout={onLogout} />;
   if (tab === "overview") return <OverviewPanel />;
   if (tab === "asurge")   return <AdminSurgePanel />;
   if (tab === "adrives")  return <DrivesPanel />;
@@ -117,16 +117,17 @@ function AdminDashboard({ tab, setTab, onLogout }) {
           ))}
         </div>
 
-        <div style={{ padding: "12px 16px", borderTop: "1px solid #2a2723" }}>
-          <div style={{ fontFamily: BL.mono, fontSize: 9, color: "#8e8a82", marginBottom: 8, letterSpacing: 0.8 }}>
-            HSA ADMIN · PROD
+        <div style={{ padding: "12px", borderTop: "1px solid #2a2723" }}>
+          <div style={{ fontFamily: BL.mono, fontSize: 9, color: "#8e8a82", letterSpacing: 0.6, lineHeight: 1.9 }}>
+            MODE · <span style={{ color: "#bdb8b0" }}>PREDICT</span><br />
+            OPS · GREEN · 3 ACTIVE
           </div>
           <button
             onClick={onLogout}
             style={{
-              width: "100%", background: "none", border: "1px solid #2a2723",
-              color: "#8e8a82", borderRadius: 6, padding: "6px 0",
-              cursor: "pointer", fontSize: 12, fontFamily: BL.sans,
+              marginTop: 8, width: "100%", background: "none", border: "1px solid #2a2723",
+              color: "#8e8a82", borderRadius: 5, padding: "5px 0",
+              cursor: "pointer", fontSize: 11, fontFamily: BL.sans,
             }}
           >
             Sign out
@@ -151,14 +152,19 @@ function AdminDashboard({ tab, setTab, onLogout }) {
               {activeLabel.toUpperCase()}
             </span>
           </div>
-          <span style={{ fontFamily: BL.sans, fontSize: 12, color: BL.muted }}>
-            {new Date().toLocaleString("en-SG", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
-          </span>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <span style={{ fontFamily: BL.mono, fontSize: 9, color: BL.muted, letterSpacing: 0.4 }}>
+              {new Date().toLocaleString("en-SG", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
+            </span>
+            <div style={{ width: 1, height: 16, background: BL.hair }} />
+            <span style={{ fontFamily: BL.sans, fontSize: 12, color: BL.ink }}>Dr. R. Lim · HSA</span>
+            <div style={{ width: 28, height: 28, borderRadius: 14, background: BL.fill, border: `1px solid ${BL.hair}` }} />
+          </div>
         </div>
 
         {/* Panel content */}
         <div style={{ flex: 1, overflowY: "auto", background: BL.paper }}>
-          <div style={{ maxWidth: 1100, padding: 24 }}>
+          <div style={{ maxWidth: 1100, padding: "20px 24px" }}>
             <PanelContent tab={tab} />
           </div>
         </div>
@@ -167,57 +173,178 @@ function AdminDashboard({ tab, setTab, onLogout }) {
   );
 }
 
-// ── Donor layout: light top nav ──────────────────────────────────────────────
-function DonorDashboard({ tab, setTab, onLogout }) {
-  return (
-    <div style={{ minHeight: "100vh", background: BL.paper, fontFamily: BL.sans }}>
-      {/* Header */}
-      <div style={{
-        background: BL.card, borderBottom: `1px solid ${BL.hair}`,
-        padding: "0 24px", display: "flex", alignItems: "center", gap: 12,
-      }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1, padding: "14px 0" }}>
-          <div style={{ width: 16, height: 16, borderRadius: 3, background: BL.red }} />
-          <span style={{ fontSize: 15, fontWeight: 700, color: BL.ink, letterSpacing: -0.2 }}>BloodLine</span>
-        </div>
-        <button
-          onClick={onLogout}
-          style={{
-            background: "none", border: `1px solid ${BL.hair}`, color: BL.muted,
-            borderRadius: 6, padding: "6px 14px", cursor: "pointer", fontSize: 13,
-            fontFamily: BL.sans,
-          }}
-        >
-          Sign out
-        </button>
-      </div>
+// ── Responsive hook ──────────────────────────────────────────────────────────
+function useIsMobile() {
+  const [mobile, setMobile] = useState(() => window.innerWidth < 768);
+  useEffect(() => {
+    const fn = () => setMobile(window.innerWidth < 768);
+    window.addEventListener("resize", fn);
+    return () => window.removeEventListener("resize", fn);
+  }, []);
+  return mobile;
+}
 
-      {/* Tab nav */}
+// Shared tab icon (square with rounded corners, matching prototype)
+function TabIcon({ active }) {
+  return (
+    <div style={{
+      width: 22, height: 22, margin: "0 auto 3px",
+      borderRadius: 5,
+      border: `1.5px solid ${active ? BL.ink : BL.faint}`,
+      background: active ? BL.ink : "transparent",
+    }} />
+  );
+}
+
+// ── Donor layout: responsive — left sidebar on desktop, bottom bar on mobile ─
+function DonorDashboard({ tab, setTab, onLogout }) {
+  const mobile = useIsMobile();
+  return mobile
+    ? <DonorMobileLayout tab={tab} setTab={setTab} onLogout={onLogout} />
+    : <DonorDesktopLayout tab={tab} setTab={setTab} onLogout={onLogout} />;
+}
+
+function DonorDesktopLayout({ tab, setTab, onLogout }) {
+  const activeLabel = DONOR_TABS.find(t => t.id === tab)?.label ?? "";
+
+  return (
+    <div style={{ display: "flex", minHeight: "100vh", fontFamily: BL.sans }}>
+      {/* Left sidebar */}
       <div style={{
-        display: "flex", padding: "0 24px", background: BL.card,
-        borderBottom: `1px solid ${BL.hair}`, overflowX: "auto",
+        width: 180, background: BL.card, borderRight: `1px solid ${BL.hair}`,
+        display: "flex", flexDirection: "column", flexShrink: 0,
       }}>
-        {DONOR_TABS.map(t => (
+        {/* Logo */}
+        <div style={{ padding: "20px 16px 16px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <div style={{ width: 16, height: 16, borderRadius: 3, background: BL.red }} />
+            <span style={{ fontFamily: BL.sans, fontSize: 14, fontWeight: 700, color: BL.ink, letterSpacing: -0.2 }}>
+              BloodLine
+            </span>
+          </div>
+          <div style={{ fontFamily: BL.mono, fontSize: 9, color: BL.faint, marginTop: 4, letterSpacing: 0.8 }}>
+            DONOR
+          </div>
+        </div>
+
+        {/* Nav items */}
+        <div style={{ padding: "4px 8px", flex: 1 }}>
+          {DONOR_TABS.map(t => (
+            <button
+              key={t.id}
+              onClick={() => setTab(t.id)}
+              style={{
+                display: "flex", alignItems: "center", gap: 10,
+                width: "100%", textAlign: "left",
+                padding: "9px 12px", borderRadius: 5, marginBottom: 1,
+                cursor: "pointer", border: "none",
+                background: tab === t.id ? BL.fill : "transparent",
+                fontFamily: BL.sans, fontSize: 13,
+                fontWeight: tab === t.id ? 600 : 400,
+                color: tab === t.id ? BL.ink : BL.muted,
+                borderLeft: tab === t.id ? `2px solid ${BL.red}` : "2px solid transparent",
+              }}
+            >
+              <div style={{
+                width: 16, height: 16, borderRadius: 3, flexShrink: 0,
+                border: `1.5px solid ${tab === t.id ? BL.ink : BL.faint}`,
+                background: tab === t.id ? BL.ink : "transparent",
+              }} />
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Sign out */}
+        <div style={{ padding: "12px 16px", borderTop: `1px solid ${BL.hair}` }}>
           <button
-            key={t.id}
-            onClick={() => setTab(t.id)}
+            onClick={onLogout}
             style={{
-              background: "none", border: "none", cursor: "pointer",
-              padding: "12px 16px", fontSize: 13, fontFamily: BL.sans,
-              fontWeight: tab === t.id ? 600 : 400,
-              color: tab === t.id ? BL.red : BL.muted,
-              borderBottom: tab === t.id ? `2px solid ${BL.red}` : "2px solid transparent",
-              whiteSpace: "nowrap",
+              width: "100%", background: "none", border: `1px solid ${BL.hair}`,
+              color: BL.muted, borderRadius: 6, padding: "7px 0",
+              cursor: "pointer", fontSize: 12, fontFamily: BL.sans,
             }}
           >
-            {t.label}
+            Sign out
           </button>
-        ))}
+        </div>
       </div>
 
-      {/* Panel content */}
-      <div style={{ maxWidth: 1100, margin: "0 auto", padding: 24 }}>
-        <PanelContent tab={tab} />
+      {/* Main content */}
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
+        {/* Top bar — logo + current tab */}
+        <div style={{
+          height: 48, borderBottom: `1px solid ${BL.hair}`,
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          padding: "0 24px", background: BL.card, flexShrink: 0,
+        }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+            {/* BloodLine logo */}
+            <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+              <div style={{ width: 14, height: 14, borderRadius: 3, background: BL.red }} />
+              <span style={{ fontFamily: BL.sans, fontSize: 14, fontWeight: 700, color: BL.ink, letterSpacing: -0.2 }}>
+                BloodLine
+              </span>
+            </div>
+            <span style={{ color: BL.hair, fontSize: 16, lineHeight: 1 }}>›</span>
+            <span style={{ fontFamily: BL.mono, fontSize: 10, color: BL.muted, letterSpacing: 0.6 }}>
+              {activeLabel.toUpperCase()}
+            </span>
+          </div>
+          <span style={{ fontFamily: BL.sans, fontSize: 12, color: BL.muted }}>
+            {new Date().toLocaleString("en-SG", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
+          </span>
+        </div>
+
+        {/* Panel */}
+        <div style={{ flex: 1, overflowY: "auto", background: BL.paper }}>
+          <div style={{ maxWidth: 800, padding: "16px 24px 24px" }}>
+            <PanelContent tab={tab} onLogout={onLogout} />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DonorMobileLayout({ tab, setTab, onLogout }) {
+  return (
+    <div style={{ minHeight: "100vh", background: BL.paper, fontFamily: BL.sans }}>
+      {/* No top bar on mobile — matches prototype (AppHeader in each panel handles identity) */}
+
+      {/* Safe area top + 16px base so content never hugs the browser chrome */}
+      <div style={{ padding: "max(16px, env(safe-area-inset-top)) 16px 80px" }}>
+        <PanelContent tab={tab} onLogout={onLogout} />
+      </div>
+
+      {/* Bottom tab bar — matches prototype TabBar exactly */}
+      <div style={{
+        position: "fixed", bottom: 0, left: 0, right: 0,
+        height: 56, background: BL.card, borderTop: `1px solid ${BL.hair}`,
+        display: "flex", alignItems: "center",
+        paddingBottom: 4, zIndex: 20,
+      }}>
+        {DONOR_TABS.map(t => {
+          const active = tab === t.id;
+          return (
+            <button
+              key={t.id}
+              onClick={() => setTab(t.id)}
+              style={{
+                flex: 1, textAlign: "center", background: "none", border: "none",
+                cursor: "pointer", padding: "6px 0",
+              }}
+            >
+              <TabIcon active={active} />
+              <div style={{
+                fontFamily: BL.sans, fontSize: 10, fontWeight: 500,
+                color: active ? BL.ink : BL.faint,
+              }}>
+                {t.label}
+              </div>
+            </button>
+          );
+        })}
       </div>
     </div>
   );

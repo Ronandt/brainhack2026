@@ -1,13 +1,31 @@
 import { useState, useEffect } from "react";
-import { getDonor, getStatus, getDrives, createBooking } from "../api";
+import { getDonor, getStatus, getDrives, createBooking, getSurgeMonitor } from "../api";
 import { BL, riskToNeed } from "../tokens";
+
+function AppHeader({ sub, title, right }) {
+  return (
+    <div style={{ padding: "0 0 10px", display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}>
+      <div>
+        {sub && (
+          <div style={{ fontFamily: BL.mono, fontSize: 9, letterSpacing: 0.6, textTransform: "uppercase", color: BL.muted, marginBottom: 2 }}>
+            {sub}
+          </div>
+        )}
+        <div style={{ fontFamily: BL.sans, fontSize: 22, fontWeight: 600, color: BL.ink, letterSpacing: -0.4, lineHeight: 1.2 }}>
+          {title}
+        </div>
+      </div>
+      {right}
+    </div>
+  );
+}
 
 function Tag({ children, color, bg }) {
   return (
     <span style={{
-      fontFamily: BL.mono, fontSize: 10, letterSpacing: 0.6, textTransform: "uppercase",
+      fontFamily: BL.mono, fontSize: 9, letterSpacing: 0.6, textTransform: "uppercase",
       color: color || BL.muted,
-      ...(bg ? { background: bg, padding: "2px 7px", borderRadius: 3 } : {}),
+      ...(bg ? { background: bg, padding: "2px 6px", borderRadius: 3 } : {}),
     }}>
       {children}
     </span>
@@ -17,8 +35,8 @@ function Tag({ children, color, bg }) {
 function Card({ children, style }) {
   return (
     <div style={{
-      background: BL.card, border: `1px solid ${BL.hair}`, borderRadius: 8,
-      padding: 16, marginBottom: 12, ...style,
+      background: BL.card, border: `1px solid ${BL.hair}`, borderRadius: 6,
+      padding: 16, marginBottom: 10, ...style,
     }}>
       {children}
     </div>
@@ -29,11 +47,22 @@ export default function HomePanel() {
   const [donor, setDonor] = useState(null);
   const [status, setStatus] = useState(null);
   const [drives, setDrives] = useState([]);
+  const [surgeAlerts, setSurgeAlerts] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [screen, setScreen] = useState(null); // null | 'booking' | 'confirm' | 'success'
+  const [screen, setScreen] = useState(null);
   const [selectedDrive, setSelectedDrive] = useState(null);
   const [confirming, setConfirming] = useState(false);
   const [bookingError, setBookingError] = useState(null);
+
+  function fetchSurge() {
+    getSurgeMonitor()
+      .then(d => {
+        const alerts = d.activeAlerts ?? [];
+        console.log("[Surge] active alerts:", alerts);
+        setSurgeAlerts(alerts);
+      })
+      .catch(err => console.error("[Surge] getSurgeMonitor failed:", err));
+  }
 
   useEffect(() => {
     Promise.allSettled([
@@ -41,11 +70,25 @@ export default function HomePanel() {
       getStatus().then(setStatus),
       getDrives().then(d => setDrives(d.drives ?? [])),
     ]).finally(() => setLoading(false));
+
+    // Surge is fetched independently so a monitor error never blocks the main load
+    fetchSurge();
+    const id = setInterval(fetchSurge, 30_000);
+    return () => clearInterval(id);
   }, []);
 
   const userType = donor?.bloodType;
   const typeStatus = status?.byBloodType?.find(t => t.bloodType === userType);
   const typeNeed = typeStatus ? riskToNeed(typeStatus.riskLevel) : "ok";
+
+  // Show surge if:
+  //   (a) exact blood-type match — donor can directly respond
+  //   (b) island-wide surge — national emergency visible to all donors
+  //       (they may not be the right type but the banner surfaces the crisis and
+  //        the message will clarify which type is needed)
+  const activeSurge = surgeAlerts.find(a =>
+    a.bloodType === userType || a.geoTier === "island-wide"
+  ) ?? null;
 
   async function confirmBooking() {
     if (!selectedDrive) return;
@@ -61,22 +104,27 @@ export default function HomePanel() {
     }
   }
 
-  if (loading) return <div style={{ fontFamily: BL.sans, color: BL.muted, fontSize: 13, padding: 4 }}>Loading…</div>;
+  if (loading) return (
+    <div>
+      <AppHeader sub="bloodline" title="Home" />
+      <div style={{ fontFamily: BL.sans, color: BL.muted, fontSize: 13, padding: "8px 0" }}>Loading…</div>
+    </div>
+  );
 
   // ── Booking slot picker ──────────────────────────────────────────
   if (screen === "booking") {
     return (
       <div>
-        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 0 8px" }}>
           <button
             onClick={() => setScreen(null)}
-            style={{ background: "none", border: "none", cursor: "pointer", fontFamily: BL.sans, fontSize: 13, color: BL.ink, padding: 0 }}
+            style={{ background: "none", border: "none", cursor: "pointer", fontFamily: BL.sans, fontSize: 13, color: BL.ink, padding: 0, fontWeight: 500 }}
           >
             ← Back
           </button>
           <Tag>{userType ? `Book · ${userType} whole blood` : "Book a slot"}</Tag>
         </div>
-        <div style={{ fontFamily: BL.sans, fontSize: 22, fontWeight: 600, color: BL.ink, letterSpacing: -0.4, lineHeight: 1.2, marginBottom: 6 }}>
+        <div style={{ fontFamily: BL.sans, fontSize: 22, fontWeight: 600, color: BL.ink, letterSpacing: -0.4, lineHeight: 1.2, marginBottom: 4 }}>
           Choose a time
         </div>
         <div style={{ fontFamily: BL.sans, fontSize: 13, color: BL.muted, marginBottom: 16, lineHeight: 1.5 }}>
@@ -98,8 +146,8 @@ export default function HomePanel() {
                 onClick={() => setSelectedDrive(drive)}
                 style={{
                   width: "100%", textAlign: "left", background: BL.card,
-                  border: `1.5px solid ${sel ? BL.ink : BL.hair}`, borderRadius: 8,
-                  padding: 16, marginBottom: 8, cursor: "pointer",
+                  border: `1.5px solid ${sel ? BL.ink : BL.hair}`, borderRadius: 6,
+                  padding: 14, marginBottom: 8, cursor: "pointer",
                   outline: sel ? `2px solid ${BL.ink}` : "none", outlineOffset: -1,
                 }}
               >
@@ -131,7 +179,7 @@ export default function HomePanel() {
             width: "100%", padding: "13px 0", marginTop: 4,
             background: selectedDrive ? BL.ink : BL.hair,
             color: selectedDrive ? "#fff" : BL.muted,
-            border: "none", borderRadius: 6, fontFamily: BL.sans, fontSize: 14, fontWeight: 600,
+            border: "none", borderRadius: 8, fontFamily: BL.sans, fontSize: 14, fontWeight: 600,
             cursor: selectedDrive ? "pointer" : "default",
           }}
         >
@@ -147,10 +195,10 @@ export default function HomePanel() {
     const pct = drive.capacity > 0 ? Math.round((drive.booked / drive.capacity) * 100) : 0;
     return (
       <div>
-        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 0 8px" }}>
           <button
             onClick={() => setScreen("booking")}
-            style={{ background: "none", border: "none", cursor: "pointer", fontFamily: BL.sans, fontSize: 13, color: BL.ink, padding: 0 }}
+            style={{ background: "none", border: "none", cursor: "pointer", fontFamily: BL.sans, fontSize: 13, color: BL.ink, padding: 0, fontWeight: 500 }}
           >
             ← Back
           </button>
@@ -217,7 +265,7 @@ export default function HomePanel() {
           disabled={confirming}
           style={{
             width: "100%", padding: "13px 0", background: BL.ink, color: "#fff",
-            border: "none", borderRadius: 6, fontFamily: BL.sans, fontSize: 14, fontWeight: 600,
+            border: "none", borderRadius: 8, fontFamily: BL.sans, fontSize: 14, fontWeight: 600,
             cursor: confirming ? "default" : "pointer", opacity: confirming ? 0.7 : 1,
           }}
         >
@@ -258,7 +306,7 @@ export default function HomePanel() {
           onClick={() => { setScreen(null); setSelectedDrive(null); }}
           style={{
             width: "100%", padding: "13px 0", background: BL.ink, color: "#fff",
-            border: "none", borderRadius: 6, fontFamily: BL.sans, fontSize: 14, fontWeight: 600,
+            border: "none", borderRadius: 8, fontFamily: BL.sans, fontSize: 14, fontWeight: 600,
             cursor: "pointer", marginTop: 8,
           }}
         >
@@ -271,9 +319,57 @@ export default function HomePanel() {
   // ── Main home screen ─────────────────────────────────────────────
   return (
     <div>
+      {/* Page header — donor name + avatar */}
+      <AppHeader
+        sub="bloodline"
+        title={donor?.name || "Home"}
+        right={
+          <div style={{
+            width: 32, height: 32, borderRadius: 16, background: BL.fill,
+            border: `1px solid ${BL.hair}`, flexShrink: 0,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            fontFamily: BL.sans, fontSize: 13, fontWeight: 600, color: BL.ink,
+          }}>
+            {(donor?.name || "?").charAt(0).toUpperCase()}
+          </div>
+        }
+      />
+
+      {/* ── Live surge banner ── rendered only when HSA activates a surge for this blood type */}
+      {activeSurge && (
+        <div style={{
+          background: BL.surgeBg, border: `2px solid ${BL.surge}`,
+          borderRadius: 8, padding: "14px 16px", marginBottom: 12,
+        }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+            <Tag color={BL.surge} bg={`${BL.surge}18`}>Surge · {activeSurge.bloodType}</Tag>
+            {activeSurge.geoTier && (
+              <Tag color={BL.surge}>{activeSurge.geoTier}</Tag>
+            )}
+          </div>
+          <div style={{ fontFamily: BL.sans, fontSize: 16, fontWeight: 700, color: BL.surge, letterSpacing: -0.2, marginBottom: 4 }}>
+            Your blood type is urgently needed
+          </div>
+          <div style={{ fontFamily: BL.sans, fontSize: 13, color: BL.ink, lineHeight: 1.5, marginBottom: 12 }}>
+            {activeSurge.message || `${activeSurge.bloodType} blood supply is critically low. HSA is calling all eligible donors.`}
+          </div>
+          <button
+            onClick={() => setScreen("booking")}
+            style={{
+              width: "100%", padding: "11px 0",
+              background: BL.surge, color: "#fff",
+              border: "none", borderRadius: 7, fontFamily: BL.sans,
+              fontSize: 14, fontWeight: 600, cursor: "pointer",
+            }}
+          >
+            Book a slot now →
+          </button>
+        </div>
+      )}
+
       {/* Eligibility card */}
       <Card>
-        <Tag>{donor?.name ? `Bloodline · ${donor.name}` : "Bloodline"}</Tag>
+        <Tag>Eligibility</Tag>
         {donor?.eligible ? (
           <>
             <div style={{ display: "flex", gap: 8, marginTop: 6, alignItems: "center" }}>
@@ -282,7 +378,7 @@ export default function HomePanel() {
               </span>
               <span style={{
                 fontFamily: BL.mono, fontSize: 11, color: BL.need.ok.fg,
-                background: BL.need.ok.bg, padding: "2px 7px", borderRadius: 3,
+                background: BL.need.ok.bg, padding: "2px 6px", borderRadius: 3,
               }}>NOW</span>
             </div>
             {donor.lastDonatedAt && (
@@ -308,7 +404,7 @@ export default function HomePanel() {
             </span>
             <span style={{
               fontFamily: BL.mono, fontSize: 11, color: BL.need.ok.fg,
-              background: BL.need.ok.bg, padding: "2px 7px", borderRadius: 3,
+              background: BL.need.ok.bg, padding: "2px 6px", borderRadius: 3,
             }}>NOW</span>
           </div>
         )}
@@ -332,7 +428,7 @@ export default function HomePanel() {
           {userType && (
             <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 14 }}>
               <div style={{
-                width: 52, height: 52, borderRadius: 8, flexShrink: 0,
+                width: 52, height: 52, borderRadius: 6, flexShrink: 0,
                 background: BL.need[typeNeed].bg,
                 border: `2px solid ${BL.need[typeNeed].fg}`,
                 display: "flex", alignItems: "center", justifyContent: "center",
@@ -357,7 +453,7 @@ export default function HomePanel() {
             onClick={() => setScreen("booking")}
             style={{
               width: "100%", padding: "11px 0", background: BL.ink, color: "#fff",
-              border: "none", borderRadius: 6, fontFamily: BL.sans, fontSize: 14, fontWeight: 600,
+              border: "none", borderRadius: 8, fontFamily: BL.sans, fontSize: 14, fontWeight: 500,
               cursor: "pointer",
             }}
           >
@@ -381,7 +477,7 @@ export default function HomePanel() {
                 <div key={item.bloodType} style={{
                   background: BL.need[need].bg,
                   border: `1.5px solid ${selected ? BL.need[need].fg : `${BL.need[need].fg}44`}`,
-                  borderRadius: 5, padding: "8px 4px", textAlign: "center",
+                  borderRadius: 4, padding: "8px 4px", textAlign: "center",
                   outline: selected ? `2px solid ${BL.need[need].fg}` : "none",
                   outlineOffset: 1,
                 }}>
@@ -393,7 +489,7 @@ export default function HomePanel() {
               );
             })}
           </div>
-          <div style={{ display: "flex", gap: 12, fontFamily: BL.mono, fontSize: 9 }}>
+          <div style={{ display: "flex", gap: 10, fontFamily: BL.mono, fontSize: 9 }}>
             {["ok", "low", "urgent", "critical"].map(n => (
               <span key={n} style={{ color: BL.need[n].fg }}>● {BL.need[n].label}</span>
             ))}
@@ -401,7 +497,7 @@ export default function HomePanel() {
         </Card>
       )}
 
-      {/* Nearest availability — upcoming drives */}
+      {/* Nearest availability */}
       {drives.length > 0 && (
         <Card>
           <Tag>Nearest availability</Tag>
@@ -424,7 +520,7 @@ export default function HomePanel() {
                   <button
                     onClick={() => { setSelectedDrive(drive); setScreen("confirm"); }}
                     style={{
-                      padding: "6px 16px", border: `1px solid ${BL.ink}`, borderRadius: 5,
+                      padding: "6px 14px", border: `1px solid ${BL.ink}`, borderRadius: 5,
                       background: "none", color: BL.ink, fontFamily: BL.sans, fontSize: 12,
                       fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap",
                     }}

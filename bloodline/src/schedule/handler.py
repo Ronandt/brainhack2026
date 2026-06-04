@@ -26,17 +26,78 @@ def _donor_id_from_event(event: dict) -> str:
     return event["requestContext"]["authorizer"]["claims"]["sub"]
 
 
+def _is_hsa_admin(event: dict) -> bool:
+    claims = event.get("requestContext", {}).get("authorizer", {}).get("claims", {})
+    groups = claims.get("cognito:groups", "")
+    return "HSAAdmin" in groups
+
+
 @logger.inject_lambda_context
 def lambda_handler(event: dict, context: LambdaContext) -> dict:
     method = event["httpMethod"]
     path = event.get("path", "")
 
+    if "/hospital/drives" in path and method == "GET":
+        return _list_hospital_drives(event)
     if "/drives" in path and method == "GET":
         return _list_drives(event)
+    if "/drives" in path and method == "POST":
+        return _create_drive(event)
     if "/book" in path and method == "POST":
         return _create_booking(event)
 
     return _response(404, {"error": "Not found"})
+
+
+def _list_hospital_drives(event: dict) -> dict:
+    """Returns drives created by this hospital user (filtered by createdBy = Cognito sub)."""
+    user_id = _donor_id_from_event(event)
+    result = drives_table.scan(
+        FilterExpression=Attr("createdBy").eq(user_id)
+    )
+    drives = result.get("Items", [])
+    for drive in drives:
+        for key in ("capacity", "booked", "availableSlots"):
+            if key in drive:
+                drive[key] = int(drive[key])
+    return _response(200, {"drives": drives, "count": len(drives)})
+
+
+def _create_drive(event: dict) -> dict:
+    body = json.loads(event.get("body") or "{}")
+    name = body.get("name")
+    location = body.get("location")
+    date = body.get("date")
+    capacity = body.get("capacity")
+
+    if not all([name, location, date, capacity]):
+        return _response(400, {"error": "name, location, date, and capacity are required"})
+
+    creator_id = _donor_id_from_event(event)
+    drive_id = str(uuid.uuid4())
+    now = datetime.utcnow().isoformat()
+
+    drive = {
+        "driveId": drive_id,
+        "name": name,
+        "location": location,
+        "date": date,
+        "startTime": body.get("startTime", ""),
+        "endTime": body.get("endTime", ""),
+        "capacity": int(capacity),
+        "booked": 0,
+        "availableSlots": int(capacity),
+        "acceptedBloodTypes": body.get("acceptedBloodTypes", ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"]),
+        "notes": body.get("notes", ""),
+        "status": "upcoming",
+        "createdAt": now,
+        "createdBy": creator_id,
+    }
+
+    drives_table.put_item(Item=drive)
+
+    logger.info("Blood drive created", drive_id=drive_id, name=name)
+    return _response(201, drive)
 
 
 def _list_drives(event: dict) -> dict:

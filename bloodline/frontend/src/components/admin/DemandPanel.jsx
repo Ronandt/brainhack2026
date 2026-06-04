@@ -3,57 +3,41 @@ import { submitHospitalDemand } from "../../api";
 import { BL } from "../../tokens";
 
 const BLOOD_TYPES = ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"];
-const HOSPITALS = [
-  "Singapore General Hospital", "Tan Tock Seng Hospital",
-  "National University Hospital", "Changi General Hospital",
-  "KK Women's and Children's Hospital", "Ng Teng Fong General Hospital",
+const HOSPITALS   = [
+  "Singapore General Hospital",
+  "Tan Tock Seng Hospital",
+  "National University Hospital",
+  "Changi General Hospital",
+  "KK Women's and Children's Hospital",
+  "Ng Teng Fong General Hospital",
   "Sengkang General Hospital",
 ];
 
-const s = {
-  pageTitle:  { fontFamily: BL.sans, fontSize: 22, fontWeight: 600, color: BL.ink, letterSpacing: -0.3, marginBottom: 4 },
-  pageSub:    { fontFamily: BL.sans, fontSize: 13, color: BL.muted, marginBottom: 24 },
-  two:        { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 },
-  panel:      { background: BL.card, border: `1px solid ${BL.hair}`, borderRadius: 6, padding: 22 },
-  panelTag:   { fontFamily: BL.mono, fontSize: 9, color: BL.muted, letterSpacing: 0.6, textTransform: "uppercase", marginBottom: 6 },
-  panelTitle: { fontFamily: BL.sans, fontWeight: 600, fontSize: 14, color: BL.ink, marginBottom: 4 },
-  panelSub:   { fontFamily: BL.sans, fontSize: 12, color: BL.muted, marginBottom: 18 },
-  label:      { display: "block", fontFamily: BL.sans, color: BL.muted, fontSize: 12, marginBottom: 5, marginTop: 14 },
-  input:      {
-    width: "100%", background: BL.card, border: `1px solid ${BL.rule}`, borderRadius: 6,
-    padding: "9px 12px", color: BL.ink, fontSize: 13, fontFamily: BL.sans, outline: "none",
-  },
-  select:     {
-    width: "100%", background: BL.card, border: `1px solid ${BL.rule}`, borderRadius: 6,
-    padding: "9px 12px", color: BL.ink, fontSize: 13, fontFamily: BL.sans, outline: "none",
-  },
-  btn:        {
-    marginTop: 18, padding: "10px 22px", background: BL.ink, color: "#fff",
-    border: "none", borderRadius: 6, fontSize: 13, fontFamily: BL.sans, fontWeight: 500, cursor: "pointer",
-  },
-  infoBox:    { background: BL.fill, border: `1px solid ${BL.hair}`, borderRadius: 6, padding: 14, marginBottom: 12 },
-  infoItem:   {
-    fontFamily: BL.sans, fontSize: 12, color: BL.muted, marginBottom: 8,
-    paddingLeft: 12, borderLeft: `2px solid ${BL.rule}`, lineHeight: 1.5,
-  },
-  recentCard: { background: BL.card, border: `1px solid ${BL.hair}`, borderRadius: 6, padding: 16, marginTop: 0 },
-  recentRow:  {
-    fontFamily: BL.mono, fontSize: 11, color: BL.muted,
-    padding: "6px 0", borderBottom: `1px solid ${BL.hair}`,
-  },
-  ok:         { fontFamily: BL.sans, color: BL.need.ok.fg, fontSize: 12, marginTop: 8 },
-  err:        { fontFamily: BL.sans, color: BL.need.critical.fg, fontSize: 12, marginTop: 8 },
-};
+function Tag({ children, color }) {
+  return (
+    <span style={{ fontFamily: BL.mono, fontSize: 9, letterSpacing: 0.6, textTransform: "uppercase", color: color || BL.muted }}>
+      {children}
+    </span>
+  );
+}
+
+function W({ children, style, pad = 20 }) {
+  return (
+    <div style={{ background: BL.card, border: `1px solid ${BL.hair}`, borderRadius: 6, padding: pad, ...style }}>
+      {children}
+    </div>
+  );
+}
 
 export default function DemandPanel() {
-  const [hospital, setHospital] = useState(HOSPITALS[0]);
-  const [bloodType, setBloodType] = useState("O+");
+  const [hospital,       setHospital]       = useState(HOSPITALS[0]);
+  const [bloodType,      setBloodType]      = useState("O+");
   const [procedureCount, setProcedureCount] = useState("");
-  const [date, setDate] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState(null);
-  const [error, setError] = useState("");
-  const [submissions, setSubmissions] = useState([]);
+  const [date,           setDate]           = useState("");
+  const [loading,        setLoading]        = useState(false);
+  const [result,         setResult]         = useState(null);
+  const [error,          setError]          = useState("");
+  const [submissions,    setSubmissions]    = useState([]);
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -70,64 +54,125 @@ export default function DemandPanel() {
     }
   }
 
+  const labelStyle = { display: "block", fontFamily: BL.sans, fontSize: 12, color: BL.muted, marginBottom: 5, marginTop: 16 };
+  const inputStyle = {
+    width: "100%", background: BL.card, border: `1px solid ${BL.rule}`, borderRadius: 6,
+    padding: "9px 12px", color: BL.ink, fontSize: 13, fontFamily: BL.sans, outline: "none",
+    boxSizing: "border-box",
+  };
+
   return (
     <div>
-      <div style={s.pageTitle}>Hospital demand input</div>
-      <div style={s.pageSub}>Submit upcoming procedure counts to feed into the 14-day shortage forecast</div>
+      {/* Page header */}
+      <div style={{ marginBottom: 16 }}>
+        <div style={{ fontFamily: BL.sans, fontSize: 22, fontWeight: 600, color: BL.ink, letterSpacing: -0.3 }}>
+          Hospital demand input
+        </div>
+        <div style={{ fontFamily: BL.sans, fontSize: 13, color: BL.muted, marginTop: 4 }}>
+          Submit upcoming procedure counts to feed into the 14-day shortage forecast
+        </div>
+      </div>
 
-      <div style={s.two}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
         {/* Form */}
-        <div style={s.panel}>
-          <div style={s.panelTag}>Step 1 · Submit Demand Signal</div>
-          <div style={s.panelSub}>Procedure counts affect the forecast model for the specified blood type and date.</div>
+        <W pad={20}>
+          <Tag>Step 1 · Submit Demand Signal</Tag>
+          <div style={{ fontFamily: BL.sans, fontSize: 12, color: BL.muted, marginTop: 6, marginBottom: 4 }}>
+            Procedure counts affect the forecast model for the specified blood type and date.
+          </div>
+
           <form onSubmit={handleSubmit}>
-            <label style={s.label} htmlFor="dem-hospital">Hospital</label>
-            <select id="dem-hospital" style={s.select} value={hospital} onChange={e => setHospital(e.target.value)}>
+            <label style={labelStyle} htmlFor="dem-hospital">Hospital</label>
+            <select id="dem-hospital" style={inputStyle} value={hospital} onChange={e => setHospital(e.target.value)}>
               {HOSPITALS.map(h => <option key={h}>{h}</option>)}
             </select>
 
-            <label style={s.label} htmlFor="dem-blood-type">Blood Type Required</label>
-            <select id="dem-blood-type" style={s.select} value={bloodType} onChange={e => setBloodType(e.target.value)}>
+            <label style={labelStyle} htmlFor="dem-blood-type">Blood type required</label>
+            <select id="dem-blood-type" style={inputStyle} value={bloodType} onChange={e => setBloodType(e.target.value)}>
               {BLOOD_TYPES.map(t => <option key={t}>{t}</option>)}
             </select>
 
-            <label style={s.label} htmlFor="dem-count">Procedure Count</label>
-            <input id="dem-count" style={s.input} type="number" min="1"
-              value={procedureCount} onChange={e => setProcedureCount(e.target.value)}
-              placeholder="Number of procedures needing this blood type" required />
+            <label style={labelStyle} htmlFor="dem-count">Procedure count</label>
+            <input
+              id="dem-count"
+              style={inputStyle}
+              type="number"
+              min="1"
+              value={procedureCount}
+              onChange={e => setProcedureCount(e.target.value)}
+              placeholder="Number of procedures needing this blood type"
+              required
+            />
 
-            <label style={s.label} htmlFor="dem-date">Date of Procedures</label>
-            <input id="dem-date" style={s.input} type="date"
-              value={date} onChange={e => setDate(e.target.value)} required />
+            <label style={labelStyle} htmlFor="dem-date">Date of procedures</label>
+            <input
+              id="dem-date"
+              style={inputStyle}
+              type="date"
+              value={date}
+              onChange={e => setDate(e.target.value)}
+              required
+            />
 
-            <button style={s.btn} disabled={loading}>{loading ? "Submitting…" : "Submit Demand"}</button>
+            <button
+              style={{
+                marginTop: 18, width: "100%", padding: "11px 0",
+                background: BL.ink, color: "#fff", border: "none", borderRadius: 6,
+                fontFamily: BL.sans, fontSize: 13, fontWeight: 500, cursor: "pointer",
+                opacity: loading ? 0.7 : 1,
+              }}
+              disabled={loading}
+            >
+              {loading ? "Submitting…" : "Submit demand"}
+            </button>
           </form>
-          {result && <div style={s.ok}>✓ Demand recorded for {result.bloodType} on {result.date}</div>}
-          {error  && <div style={s.err}>{error}</div>}
-        </div>
+          {result && (
+            <div style={{ fontFamily: BL.sans, color: BL.need.ok.fg, fontSize: 12, marginTop: 10 }}>
+              ✓ Demand recorded for {result.bloodType} on {result.date}
+            </div>
+          )}
+          {error && (
+            <div style={{ fontFamily: BL.sans, color: BL.need.critical.fg, fontSize: 12, marginTop: 10 }}>
+              {error}
+            </div>
+          )}
+        </W>
 
         {/* Info + recent */}
         <div>
-          <div style={s.infoBox}>
-            <div style={{ fontFamily: BL.mono, fontSize: 9, color: BL.muted, letterSpacing: 0.6, textTransform: "uppercase", marginBottom: 10 }}>
-              How this works
-            </div>
-            <div style={s.infoItem}>Each submission stores a demand signal tagged to a hospital, blood type, and date.</div>
-            <div style={s.infoItem}>The next hourly forecast refresh picks up demand signals and adjusts projected stock depletion rates.</div>
-            <div style={{ ...s.infoItem, marginBottom: 0 }}>Higher procedure counts shift risk levels earlier in the forecast window, prompting proactive donor recruitment before shortage hits.</div>
-          </div>
-
-          {submissions.length > 0 && (
-            <div style={s.recentCard}>
-              <div style={{ fontFamily: BL.mono, fontSize: 9, color: BL.muted, letterSpacing: 0.6, textTransform: "uppercase", marginBottom: 10 }}>
-                Recent Submissions · This Session
-              </div>
-              {submissions.map((sub, i) => (
-                <div key={`${sub.hospital}-${sub.bloodType}-${sub.date}-${i}`} style={{ ...s.recentRow, borderBottom: i < submissions.length - 1 ? `1px solid ${BL.hair}` : "none" }}>
-                  {sub.hospital.split(" ")[0]} · <span style={{ color: BL.ink }}>{sub.bloodType}</span> · {sub.procedureCount} procedures · {sub.date}
+          <W pad={16}>
+            <Tag>How this works</Tag>
+            <div style={{ marginTop: 12 }}>
+              {[
+                "Each submission stores a demand signal tagged to a hospital, blood type, and date.",
+                "The next hourly forecast refresh picks up demand signals and adjusts projected stock depletion rates.",
+                "Higher procedure counts shift risk levels earlier in the forecast window, prompting proactive donor recruitment before shortage hits.",
+              ].map((text, i) => (
+                <div key={i} style={{
+                  fontFamily: BL.sans, fontSize: 12, color: BL.muted, marginBottom: i < 2 ? 10 : 0,
+                  paddingLeft: 12, borderLeft: `2px solid ${BL.rule}`, lineHeight: 1.5,
+                }}>
+                  {text}
                 </div>
               ))}
             </div>
+          </W>
+
+          {submissions.length > 0 && (
+            <W pad={16} style={{ marginTop: 14 }}>
+              <Tag>Recent submissions · this session</Tag>
+              <div style={{ marginTop: 10 }}>
+                {submissions.map((sub, i) => (
+                  <div key={`${sub.hospital}-${sub.bloodType}-${sub.date}-${i}`} style={{
+                    fontFamily: BL.mono, fontSize: 11, color: BL.muted,
+                    padding: "8px 0",
+                    borderBottom: i < submissions.length - 1 ? `1px solid ${BL.hair}` : "none",
+                  }}>
+                    {sub.hospital.split(" ")[0]} · <span style={{ color: BL.ink }}>{sub.bloodType}</span> · {sub.procedureCount} procedures · {sub.date}
+                  </div>
+                ))}
+              </div>
+            </W>
           )}
         </div>
       </div>
