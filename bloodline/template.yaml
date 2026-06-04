@@ -213,6 +213,9 @@ Resources:
           KeyType: HASH
         - AttributeName: forecastDate
           KeyType: RANGE
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
 
   BloodStockTable:
     Type: AWS::DynamoDB::Table
@@ -222,13 +225,9 @@ Resources:
       AttributeDefinitions:
         - AttributeName: bloodType
           AttributeType: S
-        - AttributeName: updatedAt
-          AttributeType: S
       KeySchema:
         - AttributeName: bloodType
           KeyType: HASH
-        - AttributeName: updatedAt
-          KeyType: RANGE
 
   BloodDrivesTable:
     Type: AWS::DynamoDB::Table

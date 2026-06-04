@@ -7,7 +7,6 @@ import boto3
 import requests
 from aws_lambda_powertools import Logger
 from aws_lambda_powertools.utilities.typing import LambdaContext
-from boto3.dynamodb.conditions import Key
 from botocore.config import Config
 from bs4 import BeautifulSoup, Comment
 
@@ -79,14 +78,9 @@ def _read_latest_stock() -> tuple[list[dict], str]:
     results = []
     updated_at = ""
     for bt in BLOOD_TYPES:
-        result = blood_stock_table.query(
-            KeyConditionExpression=Key("bloodType").eq(bt),
-            ScanIndexForward=False,
-            Limit=1,
-        )
-        items = result.get("Items", [])
-        if items:
-            item = items[0]
+        result = blood_stock_table.get_item(Key={"bloodType": bt})
+        item = result.get("Item")
+        if item:
             results.append({
                 "bloodType": item["bloodType"],
                 "status": item.get("status", "Unknown"),
