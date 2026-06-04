@@ -270,6 +270,18 @@ Resources:
         - AttributeName: alertId
           KeyType: HASH
 
+  HospitalsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub bloodline-hospitals-${Stage}
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: hospitalId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: hospitalId
+          KeyType: HASH
+
 # ---------------------------------------------------------------------------
 # SNS
 # ---------------------------------------------------------------------------
@@ -516,6 +528,48 @@ Resources:
           Properties:
             RestApiId: !Ref BloodlineApi
             Path: /api/v1/admin/demand
+            Method: POST
+
+  HospitalFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub bloodline-hospital-${Stage}
+      CodeUri: src/hospital/
+      Handler: handler.lambda_handler
+      Description: Hospital portal — profile setup and blood drive submission
+      Environment:
+        Variables:
+          HOSPITALS_TABLE: !Ref HospitalsTable
+          BLOOD_DRIVES_TABLE: !Ref BloodDrivesTable
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref HospitalsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref BloodDrivesTable
+      Events:
+        GetHospitalProfile:
+          Type: Api
+          Properties:
+            RestApiId: !Ref BloodlineApi
+            Path: /api/v1/hospital/profile
+            Method: GET
+        UpdateHospitalProfile:
+          Type: Api
+          Properties:
+            RestApiId: !Ref BloodlineApi
+            Path: /api/v1/hospital/profile
+            Method: PUT
+        GetHospitalDrives:
+          Type: Api
+          Properties:
+            RestApiId: !Ref BloodlineApi
+            Path: /api/v1/hospital/drives
+            Method: GET
+        CreateHospitalDrive:
+          Type: Api
+          Properties:
+            RestApiId: !Ref BloodlineApi
+            Path: /api/v1/hospital/drives
             Method: POST
 
   DiagnosticsFunction:

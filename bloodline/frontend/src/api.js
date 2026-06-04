@@ -38,8 +38,11 @@ export const createBooking = (body) =>
   request("/api/v1/schedule/book", { method: "POST", body: JSON.stringify(body) });
 
 // Hospital
+export const getHospitalProfile = () => request("/api/v1/hospital/profile");
+export const updateHospitalProfile = (body) =>
+  request("/api/v1/hospital/profile", { method: "PUT", body: JSON.stringify(body) });
 export const createDrive = (body) =>
-  request("/api/v1/schedule/drives", { method: "POST", body: JSON.stringify(body) });
+  request("/api/v1/hospital/drives", { method: "POST", body: JSON.stringify(body) });
 export const getHospitalDrives = () => request("/api/v1/hospital/drives");
 
 // Retain

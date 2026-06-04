@@ -272,6 +272,18 @@ Resources:
       KeySchema:
       - AttributeName: alertId
         KeyType: HASH
+  HospitalsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName:
+        Fn::Sub: bloodline-hospitals-${Stage}
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+      - AttributeName: hospitalId
+        AttributeType: S
+      KeySchema:
+      - AttributeName: hospitalId
+        KeyType: HASH
   SurgeAlertTopic:
     Type: AWS::SNS::Topic
     Properties:
@@ -571,6 +583,58 @@ Resources:
             Method: POST
     Metadata:
       SamResourceId: AdminFunction
+  HospitalFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName:
+        Fn::Sub: bloodline-hospital-${Stage}
+      CodeUri: HospitalFunction
+      Handler: handler.lambda_handler
+      Description: "Hospital portal \u2014 profile setup and blood drive submission"
+      Environment:
+        Variables:
+          HOSPITALS_TABLE:
+            Ref: HospitalsTable
+          BLOOD_DRIVES_TABLE:
+            Ref: BloodDrivesTable
+      Policies:
+      - DynamoDBCrudPolicy:
+          TableName:
+            Ref: HospitalsTable
+      - DynamoDBCrudPolicy:
+          TableName:
+            Ref: BloodDrivesTable
+      Events:
+        GetHospitalProfile:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: BloodlineApi
+            Path: /api/v1/hospital/profile
+            Method: GET
+        UpdateHospitalProfile:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: BloodlineApi
+            Path: /api/v1/hospital/profile
+            Method: PUT
+        GetHospitalDrives:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: BloodlineApi
+            Path: /api/v1/hospital/drives
+            Method: GET
+        CreateHospitalDrive:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: BloodlineApi
+            Path: /api/v1/hospital/drives
+            Method: POST
+    Metadata:
+      SamResourceId: HospitalFunction
   DiagnosticsFunction:
     Type: AWS::Serverless::Function
     Properties:
