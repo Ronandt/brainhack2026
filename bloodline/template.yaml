@@ -18,6 +18,8 @@ Globals:
         BLOOD_DRIVES_TABLE: !Ref BloodDrivesTable
         BOOKINGS_TABLE: !Ref BookingsTable
         ALERTS_TABLE: !Ref AlertsTable
+        DONATION_SLOTS_TABLE: !Ref DonationSlotsTable
+        SLOT_BOOKINGS_TABLE: !Ref SlotBookingsTable
         PREDICTIONS_BUCKET: !Ref PredictionsCacheBucket
         SURGE_ALERT_TOPIC: !Ref SurgeAlertTopic
         POWERTOOLS_SERVICE_NAME: bloodline
@@ -282,6 +284,34 @@ Resources:
         - AttributeName: hospitalId
           KeyType: HASH
 
+  DonationSlotsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub bloodline-slots-${Stage}
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: slotId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: slotId
+          KeyType: HASH
+
+  SlotBookingsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub bloodline-slot-bookings-${Stage}
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: donorId
+          AttributeType: S
+        - AttributeName: slotId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: donorId
+          KeyType: HASH
+        - AttributeName: slotId
+          KeyType: RANGE
+
 # ---------------------------------------------------------------------------
 # SNS
 # ---------------------------------------------------------------------------
@@ -414,7 +444,29 @@ Resources:
             TableName: !Ref BookingsTable
         - DynamoDBCrudPolicy:
             TableName: !Ref BloodDrivesTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref DonationSlotsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref SlotBookingsTable
       Events:
+        ListSlots:
+          Type: Api
+          Properties:
+            RestApiId: !Ref BloodlineApi
+            Path: /api/v1/slots
+            Method: GET
+        BookSlot:
+          Type: Api
+          Properties:
+            RestApiId: !Ref BloodlineApi
+            Path: /api/v1/slots/{slotId}/book
+            Method: POST
+        ListHospitalDrives:
+          Type: Api
+          Properties:
+            RestApiId: !Ref BloodlineApi
+            Path: /api/v1/hospital/drives
+            Method: GET
         ListDrives:
           Type: Api
           Properties:
@@ -546,13 +598,24 @@ Resources:
       Environment:
         Variables:
           HOSPITALS_TABLE: !Ref HospitalsTable
-          BLOOD_DRIVES_TABLE: !Ref BloodDrivesTable
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref HospitalsTable
         - DynamoDBCrudPolicy:
-            TableName: !Ref BloodDrivesTable
+            TableName: !Ref DonationSlotsTable
       Events:
+        CreateSlot:
+          Type: Api
+          Properties:
+            RestApiId: !Ref BloodlineApi
+            Path: /api/v1/hospital/slots
+            Method: POST
+        ListHospitalSlots:
+          Type: Api
+          Properties:
+            RestApiId: !Ref BloodlineApi
+            Path: /api/v1/hospital/slots
+            Method: GET
         GetHospitalProfile:
           Type: Api
           Properties:
@@ -565,18 +628,6 @@ Resources:
             RestApiId: !Ref BloodlineApi
             Path: /api/v1/hospital/profile
             Method: PUT
-        GetHospitalDrives:
-          Type: Api
-          Properties:
-            RestApiId: !Ref BloodlineApi
-            Path: /api/v1/hospital/drives
-            Method: GET
-        CreateHospitalDrive:
-          Type: Api
-          Properties:
-            RestApiId: !Ref BloodlineApi
-            Path: /api/v1/hospital/drives
-            Method: POST
         ListHospitals:
           Type: Api
           Properties:

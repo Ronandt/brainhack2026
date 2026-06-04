@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { createDrive } from "../../api";
+import { createSlot } from "../../api";
 import { BL } from "../../tokens";
 
 const BLOOD_TYPES = ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"];
@@ -44,7 +44,7 @@ export default function CreateSlotPanel({ hospitalName }) {
     setSubmitting(true);
     setResult(null);
     try {
-      await createDrive({
+      await createSlot({
         name: form.name,
         location: hospitalName,
         date: form.date,

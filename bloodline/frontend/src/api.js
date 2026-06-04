@@ -37,13 +37,24 @@ export const getDrives = (bloodType) =>
 export const createBooking = (body) =>
   request("/api/v1/schedule/book", { method: "POST", body: JSON.stringify(body) });
 
-// Hospital
+// Hospital — profile & directory
 export const getHospitals = () => request("/api/v1/hospitals");
 export const getHospitalProfile = () => request("/api/v1/hospital/profile");
 export const updateHospitalProfile = (body) =>
   request("/api/v1/hospital/profile", { method: "PUT", body: JSON.stringify(body) });
+
+// Donation slots — hospital manages, donors book
+export const createSlot = (body) =>
+  request("/api/v1/hospital/slots", { method: "POST", body: JSON.stringify(body) });
+export const getHospitalSlots = () => request("/api/v1/hospital/slots");
+export const getSlots = (bloodType) =>
+  request("/api/v1/slots" + (bloodType ? `?bloodType=${bloodType}` : ""));
+export const bookSlot = (slotId) =>
+  request(`/api/v1/slots/${slotId}/book`, { method: "POST" });
+
+// Blood drives — hospital creates, admin approves
 export const createDrive = (body) =>
-  request("/api/v1/hospital/drives", { method: "POST", body: JSON.stringify(body) });
+  request("/api/v1/schedule/drives", { method: "POST", body: JSON.stringify(body) });
 export const getHospitalDrives = () => request("/api/v1/hospital/drives");
 
 // Retain
