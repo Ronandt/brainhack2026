@@ -522,12 +522,12 @@ export default function HomePanel() {
                   <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
                     <span style={{ fontFamily: BL.mono, fontSize: 11, fontWeight: 700, color: BL.ink }}>{item.bloodType}</span>
                     <span style={{ fontFamily: BL.mono, fontSize: 10, color: BL.need[need].fg, textTransform: "uppercase", letterSpacing: 0.4 }}>
-                      {item.status} · {item.percentage}%
+                      {item.status} · {Math.min(item.percentage, 100)}%
                     </span>
                   </div>
                   <div style={{ background: BL.fill, borderRadius: 3, height: 6, overflow: "hidden" }}>
                     <div style={{
-                      width: `${item.percentage}%`, height: "100%",
+                      width: `${Math.min(item.percentage, 100)}%`, height: "100%",
                       background: BL.need[need].fg, borderRadius: 3,
                       transition: "width 0.6s ease",
                     }} />

@@ -108,10 +108,19 @@ def lambda_handler(event: dict, context: LambdaContext) -> dict:
         logger.info("Sync complete", synced=len(stock_data), at=synced_at)
         return {"statusCode": 200, "synced": len(stock_data)}
 
-    # HTTP GET /api/v1/blood-stock — serve cached data from DynamoDB
+    # HTTP GET /api/v1/blood-stock — serve cached data; scrape live if stale/legacy
     http_method = event.get("httpMethod", "")
     if http_method == "GET":
         stock, updated_at = _read_latest_stock()
+        # DynamoDB has old mock data (no status field) or is empty — scrape now and cache
+        is_stale = not stock or any(s["status"] == "Unknown" for s in stock)
+        if is_stale:
+            logger.info("Stale/missing data detected — scraping live")
+            synced_at = datetime.now(timezone.utc).isoformat()
+            stock_data = _scrape_redcross()
+            _write_to_dynamodb(stock_data, synced_at)
+            stock = [{"bloodType": e["bloodType"], "status": e["status"], "percentage": e["percentage"]} for e in stock_data]
+            updated_at = synced_at
         return _response(200, {
             "bloodStock": stock,
             "updatedAt": updated_at,
