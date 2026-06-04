@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { getDonor, getStatus, getDrives, createBooking, getSurgeMonitor } from "../api";
+import { getDonor, getStatus, getSlots, bookSlot, getSurgeMonitor } from "../api";
 import { BL, riskToNeed } from "../tokens";
 
 function AppHeader({ sub, title, right }) {
@@ -46,11 +46,11 @@ function Card({ children, style }) {
 export default function HomePanel() {
   const [donor, setDonor] = useState(null);
   const [status, setStatus] = useState(null);
-  const [drives, setDrives] = useState([]);
+  const [slots, setSlots] = useState([]);
   const [surgeAlerts, setSurgeAlerts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [screen, setScreen] = useState(null);
-  const [selectedDrive, setSelectedDrive] = useState(null);
+  const [selectedSlot, setSelectedSlot] = useState(null);
   const [confirming, setConfirming] = useState(false);
   const [bookingError, setBookingError] = useState(null);
 
@@ -68,7 +68,7 @@ export default function HomePanel() {
     Promise.allSettled([
       getDonor().then(setDonor),
       getStatus().then(setStatus),
-      getDrives().then(d => setDrives(d.drives ?? [])),
+      getSlots().then(d => setSlots(d.slots ?? [])),
     ]).finally(() => setLoading(false));
 
     // Surge is fetched independently so a monitor error never blocks the main load
@@ -91,11 +91,11 @@ export default function HomePanel() {
   ) ?? null;
 
   async function confirmBooking() {
-    if (!selectedDrive) return;
+    if (!selectedSlot) return;
     setConfirming(true);
     setBookingError(null);
     try {
-      await createBooking({ driveId: selectedDrive.driveId, slotTime: new Date().toISOString() });
+      await bookSlot(selectedSlot.slotId);
       setScreen("success");
     } catch (e) {
       setBookingError(e.message);
@@ -131,19 +131,19 @@ export default function HomePanel() {
           Pick a slot that works for you. We'll confirm with HSA instantly.
         </div>
 
-        {drives.length === 0 ? (
+        {slots.length === 0 ? (
           <Card>
-            <div style={{ fontFamily: BL.sans, fontSize: 13, color: BL.muted }}>No upcoming drives available.</div>
+            <div style={{ fontFamily: BL.sans, fontSize: 13, color: BL.muted }}>No donation slots available right now.</div>
           </Card>
         ) : (
-          drives.map(drive => {
-            const pct = drive.capacity > 0 ? Math.round((drive.booked / drive.capacity) * 100) : 0;
-            const slotsLeft = (drive.capacity ?? 0) - (drive.booked ?? 0);
-            const sel = selectedDrive?.driveId === drive.driveId;
+          slots.map(slot => {
+            const pct = slot.capacity > 0 ? Math.round((slot.booked / slot.capacity) * 100) : 0;
+            const slotsLeft = (slot.capacity ?? 0) - (slot.booked ?? 0);
+            const sel = selectedSlot?.slotId === slot.slotId;
             return (
               <button
-                key={drive.driveId}
-                onClick={() => setSelectedDrive(drive)}
+                key={slot.slotId}
+                onClick={() => setSelectedSlot(slot)}
                 style={{
                   width: "100%", textAlign: "left", background: BL.card,
                   border: `1.5px solid ${sel ? BL.ink : BL.hair}`, borderRadius: 6,
@@ -154,13 +154,13 @@ export default function HomePanel() {
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontFamily: BL.sans, fontSize: 14, color: BL.ink, fontWeight: 600 }}>
-                      {drive.name ?? drive.location}
+                      {slot.location}
                     </div>
                     <div style={{ fontFamily: BL.mono, fontSize: 10, color: BL.muted, marginTop: 3, letterSpacing: 0.3 }}>
-                      {drive.date} · {drive.location}
+                      {slot.date}{slot.startTime && ` · ${slot.startTime}`}{slot.endTime && `–${slot.endTime}`}
                     </div>
                     <div style={{ fontFamily: BL.mono, fontSize: 10, color: BL.muted, marginTop: 2, letterSpacing: 0.3 }}>
-                      {pct}% booked · {slotsLeft} slots left
+                      {pct}% booked · {slotsLeft} spots left
                     </div>
                   </div>
                   {sel && (
@@ -173,17 +173,17 @@ export default function HomePanel() {
         )}
 
         <button
-          onClick={() => selectedDrive && setScreen("confirm")}
-          disabled={!selectedDrive}
+          onClick={() => selectedSlot && setScreen("confirm")}
+          disabled={!selectedSlot}
           style={{
             width: "100%", padding: "13px 0", marginTop: 4,
-            background: selectedDrive ? BL.ink : BL.hair,
-            color: selectedDrive ? "#fff" : BL.muted,
+            background: selectedSlot ? BL.ink : BL.hair,
+            color: selectedSlot ? "#fff" : BL.muted,
             border: "none", borderRadius: 8, fontFamily: BL.sans, fontSize: 14, fontWeight: 600,
-            cursor: selectedDrive ? "pointer" : "default",
+            cursor: selectedSlot ? "pointer" : "default",
           }}
         >
-          {selectedDrive ? `Continue with ${selectedDrive.name ?? selectedDrive.location}` : "Choose a slot"}
+          {selectedSlot ? `Continue with ${selectedSlot.location}` : "Choose a slot"}
         </button>
       </div>
     );
@@ -191,8 +191,8 @@ export default function HomePanel() {
 
   // ── Booking confirm ──────────────────────────────────────────────
   if (screen === "confirm") {
-    const drive = selectedDrive;
-    const pct = drive.capacity > 0 ? Math.round((drive.booked / drive.capacity) * 100) : 0;
+    const slot = selectedSlot;
+    const pct = slot.capacity > 0 ? Math.round((slot.booked / slot.capacity) * 100) : 0;
     return (
       <div>
         <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 0 8px" }}>
@@ -211,15 +211,15 @@ export default function HomePanel() {
         <Card>
           <Tag>When</Tag>
           <div style={{ fontFamily: BL.sans, fontSize: 16, color: BL.ink, fontWeight: 600, marginTop: 4 }}>
-            {drive.date}
+            {slot.date}{slot.startTime && ` · ${slot.startTime}`}{slot.endTime && `–${slot.endTime}`}
           </div>
           <div style={{ borderTop: `1px solid ${BL.hair}`, paddingTop: 12, marginTop: 12 }}>
             <Tag>Where</Tag>
             <div style={{ fontFamily: BL.sans, fontSize: 14, color: BL.ink, fontWeight: 500, marginTop: 4 }}>
-              {drive.name ?? drive.location}
+              {slot.location}
             </div>
             <div style={{ fontFamily: BL.mono, fontSize: 10, color: BL.muted, marginTop: 2, letterSpacing: 0.3 }}>
-              {drive.location} · {pct}% booked
+              {pct}% booked
             </div>
           </div>
           <div style={{ borderTop: `1px solid ${BL.hair}`, paddingTop: 12, marginTop: 12 }}>
@@ -277,7 +277,6 @@ export default function HomePanel() {
 
   // ── Booking success ──────────────────────────────────────────────
   if (screen === "success") {
-    const drive = selectedDrive;
     return (
       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", padding: "40px 0" }}>
         <div style={{
@@ -291,7 +290,7 @@ export default function HomePanel() {
           You're booked.
         </div>
         <div style={{ fontFamily: BL.sans, fontSize: 14, color: BL.muted, marginTop: 8, textAlign: "center", lineHeight: 1.5, maxWidth: 280 }}>
-          See you at <b style={{ color: BL.ink }}>{drive?.name ?? drive?.location}</b> on <b style={{ color: BL.ink }}>{drive?.date}</b>.
+          See you at <b style={{ color: BL.ink }}>{selectedSlot?.location}</b> on <b style={{ color: BL.ink }}>{selectedSlot?.date}</b>.
         </div>
 
         <Card style={{ marginTop: 22, width: "100%" }}>
@@ -303,7 +302,7 @@ export default function HomePanel() {
         </Card>
 
         <button
-          onClick={() => { setScreen(null); setSelectedDrive(null); }}
+          onClick={() => { setScreen(null); setSelectedSlot(null); }}
           style={{
             width: "100%", padding: "13px 0", background: BL.ink, color: "#fff",
             border: "none", borderRadius: 8, fontFamily: BL.sans, fontSize: 14, fontWeight: 600,
@@ -498,27 +497,27 @@ export default function HomePanel() {
       )}
 
       {/* Nearest availability */}
-      {drives.length > 0 && (
+      {slots.length > 0 && (
         <Card>
           <Tag>Nearest availability</Tag>
           <div style={{ marginTop: 10 }}>
-            {drives.slice(0, 3).map((drive, i) => {
-              const pct = drive.capacity > 0 ? Math.round((drive.booked / drive.capacity) * 100) : 0;
+            {slots.slice(0, 3).map((slot, i) => {
+              const pct = slot.capacity > 0 ? Math.round((slot.booked / slot.capacity) * 100) : 0;
               return (
-                <div key={drive.driveId} style={{
+                <div key={slot.slotId} style={{
                   display: "flex", alignItems: "center", justifyContent: "space-between",
                   padding: "11px 0", borderTop: i > 0 ? `1px solid ${BL.hair}` : "none",
                 }}>
                   <div style={{ flex: 1, minWidth: 0, marginRight: 12 }}>
                     <div style={{ fontFamily: BL.sans, fontSize: 13, color: BL.ink, fontWeight: 500 }}>
-                      {drive.name ?? drive.location}
+                      {slot.location}
                     </div>
                     <div style={{ fontFamily: BL.mono, fontSize: 10, color: BL.muted, marginTop: 3, letterSpacing: 0.3 }}>
-                      {drive.date} · {drive.location} · {pct}% booked
+                      {slot.date}{slot.startTime && ` · ${slot.startTime}`} · {pct}% booked
                     </div>
                   </div>
                   <button
-                    onClick={() => { setSelectedDrive(drive); setScreen("confirm"); }}
+                    onClick={() => { setSelectedSlot(slot); setScreen("confirm"); }}
                     style={{
                       padding: "6px 14px", border: `1px solid ${BL.ink}`, borderRadius: 5,
                       background: "none", color: BL.ink, fontFamily: BL.sans, fontSize: 12,

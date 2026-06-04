@@ -1,24 +1,24 @@
 import { useState, useEffect } from "react";
-import { getSlots, bookSlot } from "../api";
+import { getDrives, createBooking } from "../api";
 import { BL } from "../tokens";
 
 const BLOOD_TYPES = ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"];
 
 export default function DonorDrivesPanel() {
   const [filter, setFilter] = useState("");
-  const [slots, setSlots] = useState([]);
+  const [drives, setDrives] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [bookingState, setBookingState] = useState({});
 
-  useEffect(() => { loadSlots(""); }, []);
+  useEffect(() => { loadDrives(""); }, []);
 
-  async function loadSlots(bt) {
+  async function loadDrives(bt) {
     setLoading(true);
     setError("");
     try {
-      const data = await getSlots(bt || null);
-      setSlots(data.slots ?? []);
+      const data = await getDrives(bt || null);
+      setDrives(data.drives ?? []);
     } catch (e) {
       setError(e.message);
     } finally {
@@ -28,30 +28,29 @@ export default function DonorDrivesPanel() {
 
   function handleFilter(bt) {
     setFilter(bt);
-    loadSlots(bt);
+    loadDrives(bt);
   }
 
-  async function book(slotId) {
-    setBookingState(prev => ({ ...prev, [slotId]: { loading: true } }));
+  async function book(driveId) {
+    setBookingState(prev => ({ ...prev, [driveId]: { loading: true } }));
     try {
-      const res = await bookSlot(slotId);
-      setBookingState(prev => ({ ...prev, [slotId]: { done: true, result: res } }));
-      setSlots(prev => prev.map(s =>
-        s.slotId === slotId ? { ...s, booked: (s.booked ?? 0) + 1 } : s
-      ));
+      const res = await createBooking({ driveId, slotTime: new Date().toISOString() });
+      setBookingState(prev => ({ ...prev, [driveId]: { done: true, result: res } }));
     } catch (e) {
-      setBookingState(prev => ({ ...prev, [slotId]: { error: e.message } }));
+      setBookingState(prev => ({ ...prev, [driveId]: { error: e.message } }));
     }
   }
 
   return (
     <div>
       <div style={{ padding: "0 0 10px" }}>
-        <div style={{ fontFamily: BL.mono, fontSize: 9, letterSpacing: 0.6, textTransform: "uppercase", color: BL.muted, marginBottom: 2 }}>
-          {slots.length > 0 ? `${slots.length} available` : undefined}
-        </div>
+        {drives.length > 0 && (
+          <div style={{ fontFamily: BL.mono, fontSize: 9, letterSpacing: 0.6, textTransform: "uppercase", color: BL.muted, marginBottom: 2 }}>
+            {drives.length} active
+          </div>
+        )}
         <div style={{ fontFamily: BL.sans, fontSize: 22, fontWeight: 600, color: BL.ink, letterSpacing: -0.4, lineHeight: 1.2 }}>
-          Donation slots near you
+          Drives near you
         </div>
       </div>
 
@@ -84,36 +83,34 @@ export default function DonorDrivesPanel() {
         ))}
       </div>
 
-      {loading && <div style={{ fontFamily: BL.sans, color: BL.muted, fontSize: 13 }}>Loading slots…</div>}
+      {loading && <div style={{ fontFamily: BL.sans, color: BL.muted, fontSize: 13 }}>Loading drives…</div>}
       {error && <div style={{ fontFamily: BL.sans, color: BL.need.critical.fg, fontSize: 13 }}>{error}</div>}
-      {!loading && slots.length === 0 && (
-        <div style={{ fontFamily: BL.sans, color: BL.faint, fontSize: 13 }}>No available donation slots found.</div>
+      {!loading && drives.length === 0 && (
+        <div style={{ fontFamily: BL.sans, color: BL.faint, fontSize: 13 }}>No upcoming drives found.</div>
       )}
 
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-        {slots.map(slot => {
-          const pct = slot.capacity > 0 ? (slot.booked / slot.capacity) * 100 : 0;
-          const bs = bookingState[slot.slotId] ?? {};
+        {drives.map(drive => {
+          const pct = drive.capacity > 0 ? (drive.booked / drive.capacity) * 100 : 0;
+          const bs = bookingState[drive.driveId] ?? {};
           const almostFull = pct > 80;
 
           return (
-            <div key={slot.slotId} style={{
+            <div key={drive.driveId} style={{
               background: BL.card, border: `1px solid ${BL.hair}`, borderRadius: 6, padding: 14,
             }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontFamily: BL.sans, fontSize: 14, fontWeight: 600, color: BL.ink, marginBottom: 4 }}>
-                    {slot.location}
+                    {drive.name ?? drive.location}
                   </div>
                   <div style={{ fontFamily: BL.mono, fontSize: 10, color: BL.muted, letterSpacing: 0.4 }}>
-                    {slot.date}
-                    {slot.startTime && ` · ${slot.startTime}`}
-                    {slot.endTime && `–${slot.endTime}`}
+                    {drive.date} · {drive.location}
                   </div>
                 </div>
-                {slot.acceptedBloodTypes?.length > 0 && (
+                {drive.acceptedBloodTypes?.length > 0 && (
                   <div style={{ display: "flex", gap: 4, flexWrap: "wrap", justifyContent: "flex-end", marginLeft: 10 }}>
-                    {slot.acceptedBloodTypes.slice(0, 4).map(t => (
+                    {drive.acceptedBloodTypes.slice(0, 4).map(t => (
                       <span key={t} style={{
                         fontFamily: BL.mono, fontSize: 10, background: BL.fill,
                         borderRadius: 3, padding: "2px 6px", color: BL.ink2,
@@ -123,11 +120,10 @@ export default function DonorDrivesPanel() {
                 )}
               </div>
 
-              {/* Capacity bar */}
               <div style={{ marginBottom: 12 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
                   <span style={{ fontFamily: BL.mono, fontSize: 9, letterSpacing: 0.6, textTransform: "uppercase", color: almostFull ? BL.need.urgent.fg : BL.muted }}>
-                    {slot.booked ?? 0} / {slot.capacity ?? "?"} booked
+                    {drive.booked ?? 0} / {drive.capacity ?? "?"} slots
                   </span>
                   {almostFull && (
                     <span style={{ fontFamily: BL.mono, fontSize: 9, letterSpacing: 0.6, textTransform: "uppercase", color: BL.need.urgent.fg }}>
@@ -151,7 +147,7 @@ export default function DonorDrivesPanel() {
               ) : (
                 <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                   <button
-                    onClick={() => book(slot.slotId)}
+                    onClick={() => book(drive.driveId)}
                     disabled={bs.loading}
                     style={{
                       padding: "8px 20px", background: BL.ink, color: "#fff",
@@ -159,7 +155,7 @@ export default function DonorDrivesPanel() {
                       fontWeight: 600, cursor: "pointer", opacity: bs.loading ? 0.5 : 1,
                     }}
                   >
-                    {bs.loading ? "Booking…" : "Book slot"}
+                    {bs.loading ? "Booking…" : "RSVP"}
                   </button>
                   {bs.error && (
                     <span style={{ fontFamily: BL.sans, fontSize: 12, color: BL.need.critical.fg }}>{bs.error}</span>
