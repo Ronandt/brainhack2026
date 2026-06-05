@@ -64,7 +64,7 @@ const HOSPITAL_TABS = [
   { id: "hcheckin", label: "Check-in" },
 ];
 
-function PanelContent({ tab, hospitalName }) {
+function PanelContent({ tab, onLogout, hospitalName }) {
   if (tab === "home")     return <HomePanel />;
   if (tab === "drives")   return <DonorDrivesPanel />;
   if (tab === "impact")   return <ImpactPanel />;

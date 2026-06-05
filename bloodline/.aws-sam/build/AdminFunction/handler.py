@@ -34,13 +34,30 @@ def _is_hsa_admin(event):
     return "HSAAdmin" in claims.get("cognito:groups", "")
 
 
+def _is_hospital_or_admin(event):
+    claims = event.get("requestContext", {}).get("authorizer", {}).get("claims", {})
+    groups = claims.get("cognito:groups", "")
+    return "HospitalStaff" in groups or "HSAAdmin" in groups
+
+
 @logger.inject_lambda_context
 def lambda_handler(event: dict, context: LambdaContext) -> dict:
-    if not _is_hsa_admin(event):
-        return _response(403, {"error": "HSA admin access required"})
-
     path = event.get("path", "")
     method = event["httpMethod"]
+
+    # Hospital-accessible routes (HospitalStaff OR HSAAdmin)
+    if "/hospital/donor" in path and method == "GET":
+        if not _is_hospital_or_admin(event):
+            return _response(403, {"error": "Hospital staff or HSA admin access required"})
+        return _lookup_donor(event)
+    if "/admin/donations" in path and method == "POST":
+        if not _is_hospital_or_admin(event):
+            return _response(403, {"error": "Hospital staff or HSA admin access required"})
+        return _record_donation(event)
+
+    # All other routes: HSA admin only
+    if not _is_hsa_admin(event):
+        return _response(403, {"error": "HSA admin access required"})
 
     if "/admin/donors/segments" in path:
         return _donor_segments()
@@ -186,3 +203,84 @@ def _submit_hospital_demand(event):
 
     logger.info("Hospital demand submitted", hospital=hospital, blood_type=blood_type, date=date)
     return _response(201, {"message": "Demand signal recorded", "hospital": hospital, "bloodType": blood_type, "date": date})
+
+
+def _lookup_donor(event: dict) -> dict:
+    """Look up a single donor by donorId — used by hospital check-in flow."""
+    params = event.get("queryStringParameters") or {}
+    donor_id = params.get("donorId")
+    if not donor_id:
+        return _response(400, {"error": "donorId query parameter is required"})
+
+    result = donors_table.get_item(Key={"donorId": donor_id})
+    donor = result.get("Item")
+    if not donor:
+        return _response(404, {"error": "Donor not found"})
+
+    # Compute eligibility
+    last_donated = donor.get("lastDonatedAt")
+    if last_donated:
+        from datetime import timedelta
+        last_date = datetime.fromisoformat(last_donated)
+        next_eligible = last_date + timedelta(days=ELIGIBILITY_DAYS)
+        days_remaining = max(0, (datetime.utcnow() - next_eligible).days * -1)
+        eligible = days_remaining == 0
+    else:
+        eligible = True
+        days_remaining = 0
+
+    return _response(200, {
+        "donorId": donor.get("donorId"),
+        "name": donor.get("name", "Unknown"),
+        "bloodType": donor.get("bloodType", "—"),
+        "eligible": eligible,
+        "daysUntilEligible": days_remaining,
+        "lastDonatedAt": last_donated,
+    })
+
+
+def _record_donation(event: dict) -> dict:
+    """Record a completed donation — called by hospital staff after blood draw."""
+    import uuid
+    staff_id = event["requestContext"]["authorizer"]["claims"]["sub"]
+    body = json.loads(event.get("body") or "{}")
+
+    donor_id = body.get("donorId")
+    blood_type = body.get("bloodType")
+    volume_ml = int(body.get("volumeMl", 450))
+    facility = body.get("facility", "HSA Bloodbank")
+    donated_at = body.get("donatedAt", datetime.utcnow().isoformat())
+
+    if not donor_id or not blood_type:
+        return _response(400, {"error": "donorId and bloodType are required"})
+
+    donation_id = str(uuid.uuid4())
+
+    # Write to donations table — retain Lambda queries this for impact stats
+    donations_table.put_item(Item={
+        "donorId": donor_id,
+        "donationId": donation_id,
+        "bloodType": blood_type,
+        "volumeMl": volume_ml,
+        "donatedAt": donated_at,
+        "facility": facility,
+        "recordedBy": staff_id,
+        "createdAt": datetime.utcnow().isoformat(),
+    })
+
+    # Update donor's lastDonatedAt so eligibility recalculates correctly
+    donors_table.update_item(
+        Key={"donorId": donor_id},
+        UpdateExpression="SET lastDonatedAt = :d",
+        ExpressionAttributeValues={":d": donated_at},
+    )
+
+    logger.info("Donation recorded", donor_id=donor_id, donation_id=donation_id, blood_type=blood_type)
+    return _response(201, {
+        "donationId": donation_id,
+        "donorId": donor_id,
+        "bloodType": blood_type,
+        "volumeMl": volume_ml,
+        "donatedAt": donated_at,
+        "patientsReached": 3,
+    })
