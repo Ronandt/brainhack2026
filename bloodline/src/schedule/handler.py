@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime, timezone
 
 import boto3
-from boto3.dynamodb.conditions import Attr
+from boto3.dynamodb.conditions import Attr, Key
 from botocore.config import Config
 from aws_lambda_powertools import Logger
 from aws_lambda_powertools.utilities.typing import LambdaContext
@@ -50,6 +50,8 @@ def lambda_handler(event: dict, context: LambdaContext) -> dict:
     # Blood drives (hospital-created events, admin-approved)
     if "/hospital/drives" in path and method == "GET":
         return _list_hospital_drives(event)
+    if "/bookings" in path and method == "GET":
+        return _list_my_bookings(event)
     if "/drives" in path and method == "GET":
         return _list_drives(event)
     if "/drives" in path and method == "POST":
@@ -60,6 +62,54 @@ def lambda_handler(event: dict, context: LambdaContext) -> dict:
         return _create_booking(event)
 
     return _response(404, {"error": "Not found"})
+
+
+def _list_my_bookings(event: dict) -> dict:
+    """Return all upcoming confirmed bookings (drive + slot) for this donor."""
+    donor_id = _donor_id_from_event(event)
+    today = datetime.now(timezone.utc).date().isoformat()
+    enriched = []
+
+    # Drive bookings (legacy flow)
+    drive_result = bookings_table.query(
+        KeyConditionExpression=Key("donorId").eq(donor_id)
+    )
+    for booking in drive_result.get("Items", []):
+        if booking.get("status") != "confirmed":
+            continue
+        drive = drives_table.get_item(Key={"driveId": booking["driveId"]}).get("Item", {})
+        if drive.get("date", "") >= today:
+            for key in ("capacity", "booked", "availableSlots"):
+                if key in drive:
+                    drive[key] = int(drive[key])
+            enriched.append({**booking, "drive": drive})
+
+    # Slot bookings (new flow) — normalise into the same shape
+    slot_result = slot_bookings_table.query(
+        KeyConditionExpression=Key("donorId").eq(donor_id)
+    )
+    for booking in slot_result.get("Items", []):
+        if booking.get("status") != "confirmed":
+            continue
+        slot = slots_table.get_item(Key={"slotId": booking["slotId"]}).get("Item", {})
+        if slot.get("date", "") >= today:
+            for key in ("capacity", "booked"):
+                if key in slot:
+                    slot[key] = int(slot[key])
+            enriched.append({
+                **booking,
+                "drive": {
+                    "name": slot.get("location", ""),
+                    "location": slot.get("location", ""),
+                    "date": slot.get("date", ""),
+                    "startTime": slot.get("startTime", ""),
+                    "endTime": slot.get("endTime", ""),
+                },
+            })
+
+    enriched.sort(key=lambda b: b.get("drive", {}).get("date", ""))
+    logger.info("Bookings listed", donor_id=donor_id, count=len(enriched))
+    return _response(200, {"bookings": enriched, "count": len(enriched)})
 
 
 # ── Donation slots (donor-facing) ─────────────────────────────────────────────
@@ -179,7 +229,7 @@ def _create_drive(event: dict) -> dict:
         "availableSlots": int(capacity),
         "acceptedBloodTypes": body.get("acceptedBloodTypes", ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"]),
         "notes": body.get("notes", ""),
-        "status": "pending",
+        "status": "upcoming",
         "createdAt": now,
         "createdBy": creator_id,
     }

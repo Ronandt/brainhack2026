@@ -12,7 +12,7 @@ Globals:
         DONORS_TABLE: !Ref DonorsTable
         DONATIONS_TABLE: !Ref DonationsTable
         PREDICTIONS_TABLE: !Ref PredictionsTable
-        BLOOD_STOCK_TABLE: !Ref BloodStockTable
+        BLOOD_STOCK_TABLE: !Sub bloodline-blood-stock-${Stage}
         BLOOD_DRIVES_TABLE: !Ref BloodDrivesTable
         BOOKINGS_TABLE: !Ref BookingsTable
         ALERTS_TABLE: !Ref AlertsTable
@@ -49,6 +49,26 @@ Resources:
           CognitoAuth:
             UserPoolArn: !GetAtt DonorUserPool.Arn
         AddDefaultAuthorizerToCorsPreflight: false
+
+  ApiGatewayResponse4xx:
+    Type: AWS::ApiGateway::GatewayResponse
+    Properties:
+      ResponseType: DEFAULT_4XX
+      RestApiId: !Ref BloodlineApi
+      ResponseParameters:
+        gatewayresponse.header.Access-Control-Allow-Origin: "'*'"
+        gatewayresponse.header.Access-Control-Allow-Headers: "'Content-Type,Authorization'"
+        gatewayresponse.header.Access-Control-Allow-Methods: "'GET,POST,PUT,DELETE,OPTIONS'"
+
+  ApiGatewayResponse5xx:
+    Type: AWS::ApiGateway::GatewayResponse
+    Properties:
+      ResponseType: DEFAULT_5XX
+      RestApiId: !Ref BloodlineApi
+      ResponseParameters:
+        gatewayresponse.header.Access-Control-Allow-Origin: "'*'"
+        gatewayresponse.header.Access-Control-Allow-Headers: "'Content-Type,Authorization'"
+        gatewayresponse.header.Access-Control-Allow-Methods: "'GET,POST,PUT,DELETE,OPTIONS'"
 
 # ---------------------------------------------------------------------------
 # COGNITO
@@ -225,9 +245,13 @@ Resources:
       AttributeDefinitions:
         - AttributeName: bloodType
           AttributeType: S
+        - AttributeName: updatedAt
+          AttributeType: S
       KeySchema:
         - AttributeName: bloodType
           KeyType: HASH
+        - AttributeName: updatedAt
+          KeyType: RANGE
 
   BloodDrivesTable:
     Type: AWS::DynamoDB::Table
@@ -360,7 +384,7 @@ Resources:
         - DynamoDBCrudPolicy:
             TableName: !Ref PredictionsTable
         - DynamoDBReadPolicy:
-            TableName: !Ref BloodStockTable
+            TableName: !Sub bloodline-blood-stock-${Stage}
         - S3CrudPolicy:
             BucketName: !Ref PredictionsCacheBucket
       Events:
@@ -410,6 +434,12 @@ Resources:
             RestApiId: !Ref BloodlineApi
             Path: /api/v1/surge/monitor
             Method: GET
+        EndSurge:
+          Type: Api
+          Properties:
+            RestApiId: !Ref BloodlineApi
+            Path: /api/v1/surge/{alertId}/end
+            Method: POST
 
   NotifyFunction:
     Type: AWS::Serverless::Function
@@ -446,6 +476,12 @@ Resources:
         - DynamoDBCrudPolicy:
             TableName: !Ref SlotBookingsTable
       Events:
+        ListMyBookings:
+          Type: Api
+          Properties:
+            RestApiId: !Ref BloodlineApi
+            Path: /api/v1/schedule/bookings
+            Method: GET
         ListSlots:
           Type: Api
           Properties:
@@ -513,7 +549,7 @@ Resources:
       Timeout: 30
       Policies:
         - DynamoDBCrudPolicy:
-            TableName: !Ref BloodStockTable
+            TableName: !Sub bloodline-blood-stock-${Stage}
       Events:
         SyncSchedule:
           Type: Schedule
@@ -534,18 +570,18 @@ Resources:
       FunctionName: !Sub bloodline-admin-${Stage}
       CodeUri: src/admin/
       Handler: handler.lambda_handler
-      Description: HSA admin console — donor segments, drive approvals, stock overview, demand input
+      Description: HSA admin console — donor segments, drive approvals, stock overview, demand input, donation recording
       Policies:
-        - DynamoDBReadPolicy:
+        - DynamoDBCrudPolicy:
             TableName: !Ref DonorsTable
-        - DynamoDBReadPolicy:
+        - DynamoDBCrudPolicy:
             TableName: !Ref DonationsTable
         - DynamoDBCrudPolicy:
             TableName: !Ref BloodDrivesTable
         - DynamoDBReadPolicy:
             TableName: !Ref AlertsTable
         - DynamoDBReadPolicy:
-            TableName: !Ref BloodStockTable
+            TableName: !Sub bloodline-blood-stock-${Stage}
         - DynamoDBCrudPolicy:
             TableName: !Ref PredictionsTable
       Events:
@@ -590,6 +626,18 @@ Resources:
           Properties:
             RestApiId: !Ref BloodlineApi
             Path: /api/v1/admin/demand
+            Method: POST
+        LookupDonor:
+          Type: Api
+          Properties:
+            RestApiId: !Ref BloodlineApi
+            Path: /api/v1/hospital/donor
+            Method: GET
+        RecordDonation:
+          Type: Api
+          Properties:
+            RestApiId: !Ref BloodlineApi
+            Path: /api/v1/admin/donations
             Method: POST
 
   HospitalFunction:
@@ -659,7 +707,7 @@ Resources:
         - DynamoDBReadPolicy:
             TableName: !Ref PredictionsTable
         - DynamoDBReadPolicy:
-            TableName: !Ref BloodStockTable
+            TableName: !Sub bloodline-blood-stock-${Stage}
         - DynamoDBReadPolicy:
             TableName: !Ref BloodDrivesTable
         - DynamoDBReadPolicy:
