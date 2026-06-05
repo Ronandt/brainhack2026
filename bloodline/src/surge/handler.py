@@ -33,7 +33,11 @@ def _is_hsa_admin(event: dict) -> bool:
 @logger.inject_lambda_context
 def lambda_handler(event: dict, context: LambdaContext) -> dict:
     method = event["httpMethod"]
+    path = event.get("path", "")
 
+    if method == "POST" and "/end" in path:
+        alert_id = (event.get("pathParameters") or {}).get("alertId")
+        return _end_surge(event, alert_id)
     if method == "POST":
         return _activate_surge(event)
     if method == "GET":
@@ -98,6 +102,26 @@ def _activate_surge(event: dict) -> dict:
 
     logger.info("Surge alert activated", alert_id=alert_id, blood_type=blood_type, geo_tier=geo_tier)
     return _response(201, {"alertId": alert_id, "status": "active", "message": "Surge alert activated and notifications dispatched"})
+
+
+def _end_surge(event: dict, alert_id: str) -> dict:
+    if not _is_hsa_admin(event):
+        return _response(403, {"error": "HSA admin access required"})
+    if not alert_id:
+        return _response(400, {"error": "alertId is required"})
+
+    ended_by = event["requestContext"]["authorizer"]["claims"]["sub"]
+    now = datetime.utcnow().isoformat()
+
+    alerts_table.update_item(
+        Key={"alertId": alert_id},
+        UpdateExpression="SET #s = :s, endedBy = :e, endedAt = :t",
+        ExpressionAttributeNames={"#s": "status"},
+        ExpressionAttributeValues={":s": "ended", ":e": ended_by, ":t": now},
+    )
+
+    logger.info("Surge alert ended", alert_id=alert_id, ended_by=ended_by)
+    return _response(200, {"alertId": alert_id, "status": "ended"})
 
 
 def _monitor_surge(event: dict) -> dict:

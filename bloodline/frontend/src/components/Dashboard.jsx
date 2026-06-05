@@ -11,6 +11,7 @@ import DonorsPanel from "./admin/DonorsPanel";
 import DemandPanel from "./admin/DemandPanel";
 import MySlotsPanel from "./hospital/MySlotsPanel";
 import CreateSlotPanel from "./hospital/CreateSlotPanel";
+import CheckinPanel from "./hospital/CheckinPanel";
 import SetupLocationPanel from "./hospital/SetupLocationPanel";
 import { getHospitalProfile } from "../api";
 
@@ -56,11 +57,12 @@ const ADMIN_TABS = [
 ];
 
 const HOSPITAL_TABS = [
-  { id: "hslots",  label: "My Slots" },
-  { id: "hcreate", label: "Create Slot" },
+  { id: "hslots",   label: "My Slots" },
+  { id: "hcreate",  label: "Create Slot" },
+  { id: "hcheckin", label: "Check-in" },
 ];
 
-function PanelContent({ tab, hospitalName }) {
+function PanelContent({ tab, onLogout, hospitalName }) {
   if (tab === "home")     return <HomePanel />;
   if (tab === "drives")   return <DonorDrivesPanel />;
   if (tab === "impact")   return <ImpactPanel />;
@@ -70,8 +72,9 @@ function PanelContent({ tab, hospitalName }) {
   if (tab === "adrives")  return <DrivesPanel />;
   if (tab === "donors")   return <DonorsPanel />;
   if (tab === "demand")   return <DemandPanel />;
-  if (tab === "hslots")   return <MySlotsPanel />;
-  if (tab === "hcreate")  return <CreateSlotPanel hospitalName={hospitalName} />;
+  if (tab === "hslots")    return <MySlotsPanel />;
+  if (tab === "hcreate")   return <CreateSlotPanel hospitalName={hospitalName} />;
+  if (tab === "hcheckin")  return <CheckinPanel />;
   return null;
 }
 

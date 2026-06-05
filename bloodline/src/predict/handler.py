@@ -1,13 +1,12 @@
 import json
 import os
 import random
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 import boto3
 from aws_lambda_powertools import Logger
 from aws_lambda_powertools.utilities.typing import LambdaContext
-from boto3.dynamodb.conditions import Key
 
 logger = Logger()
 dynamodb = boto3.resource("dynamodb")
@@ -15,9 +14,10 @@ predictions_table = dynamodb.Table(os.environ["PREDICTIONS_TABLE"])
 blood_stock_table = dynamodb.Table(os.environ["BLOOD_STOCK_TABLE"])
 
 BLOOD_TYPES = ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"]
-
-# Thresholds (units): below critical = urgent/critical
 STOCK_THRESHOLDS = {"ok": 500, "low": 300, "urgent": 150, "critical": 0}
+
+# Forecasts older than 16 days are useless — expire them automatically
+FORECAST_TTL_DAYS = 16
 
 
 def _response(status_code: int, body: dict) -> dict:
@@ -26,6 +26,10 @@ def _response(status_code: int, body: dict) -> dict:
         "headers": {"Content-Type": "application/json", "Access-Control-Allow-Origin": "*"},
         "body": json.dumps(body, default=str),
     }
+
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 def _risk_level(units: int) -> str:
@@ -39,17 +43,12 @@ def _risk_level(units: int) -> str:
 
 
 def _mock_forecast(blood_type: str, current_stock: int) -> list[dict]:
-    """
-    Heuristic forecast — replace with SageMaker endpoint call post-hackathon.
-    Simulates seasonal demand and gradual stock decay/recovery.
-    """
     forecast = []
     stock = current_stock
-    today = datetime.utcnow().date()
+    today = _now().date()
 
     for day in range(14):
         date = today + timedelta(days=day)
-        # Weekend effect: higher donations on Sat/Sun (weekday 5, 6)
         is_weekend = date.weekday() >= 5
         daily_donations = random.randint(8, 18) if is_weekend else random.randint(4, 12)
         daily_usage = random.randint(10, 20)
@@ -68,26 +67,26 @@ def _mock_forecast(blood_type: str, current_stock: int) -> list[dict]:
 
 
 def _get_current_stock(blood_type: str) -> int:
-    result = blood_stock_table.query(
-        KeyConditionExpression=Key("bloodType").eq(blood_type),
-        ScanIndexForward=False,
-        Limit=1,
-    )
-    items = result.get("Items", [])
-    if items:
-        return int(items[0].get("units", 200))
-    return 200  # fallback default
+    result = blood_stock_table.get_item(Key={"bloodType": blood_type})
+    item = result.get("Item")
+    if item:
+        return int(item.get("units", 200))
+    return 200
 
 
 def _refresh_forecasts() -> None:
     logger.info("Refreshing 14-day forecasts for all blood types")
-    today = datetime.utcnow().date()
+    generated_at = _now().isoformat()
 
     for blood_type in BLOOD_TYPES:
         current_stock = _get_current_stock(blood_type)
         forecast = _mock_forecast(blood_type, current_stock)
 
         for day in forecast:
+            # TTL: expire this row FORECAST_TTL_DAYS after its forecast date
+            forecast_dt = datetime.fromisoformat(day["date"]).replace(tzinfo=timezone.utc)
+            ttl = int((forecast_dt + timedelta(days=FORECAST_TTL_DAYS)).timestamp())
+
             predictions_table.put_item(Item={
                 "bloodType": blood_type,
                 "forecastDate": day["date"],
@@ -95,7 +94,8 @@ def _refresh_forecasts() -> None:
                 "riskLevel": day["riskLevel"],
                 "dailyDonations": Decimal(str(day["dailyDonations"])),
                 "dailyUsage": Decimal(str(day["dailyUsage"])),
-                "generatedAt": datetime.utcnow().isoformat(),
+                "generatedAt": generated_at,
+                "ttl": ttl,
             })
 
     logger.info("Forecast refresh complete")
@@ -103,7 +103,6 @@ def _refresh_forecasts() -> None:
 
 @logger.inject_lambda_context
 def lambda_handler(event: dict, context: LambdaContext) -> dict:
-    # Scheduled refresh (EventBridge) — no HTTP response needed
     if event.get("source") == "eventbridge":
         _refresh_forecasts()
         return {"statusCode": 200}
@@ -113,16 +112,14 @@ def lambda_handler(event: dict, context: LambdaContext) -> dict:
     if "/status" in path:
         return _handle_status()
     if "/forecast" in path:
-        blood_type = event.get("queryStringParameters", {}) or {}
-        blood_type = blood_type.get("bloodType")
-        return _handle_forecast(blood_type)
+        params = event.get("queryStringParameters") or {}
+        return _handle_forecast(params.get("bloodType"))
 
     return _response(404, {"error": "Not found"})
 
 
 def _handle_status() -> dict:
-    """National indicator: worst risk level across all blood types right now."""
-    today = datetime.utcnow().date().isoformat()
+    today = _now().date().isoformat()
     worst = "ok"
     severity = {"ok": 0, "low": 1, "urgent": 2, "critical": 3}
     type_statuses = []
@@ -133,7 +130,11 @@ def _handle_status() -> dict:
         )
         item = result.get("Item", {})
         risk = item.get("riskLevel", "ok")
-        type_statuses.append({"bloodType": blood_type, "riskLevel": risk, "units": int(item.get("projectedUnits", 200))})
+        type_statuses.append({
+            "bloodType": blood_type,
+            "riskLevel": risk,
+            "units": int(item.get("projectedUnits", 200)),
+        })
         if severity.get(risk, 0) > severity.get(worst, 0):
             worst = risk
 
@@ -145,10 +146,8 @@ def _handle_status() -> dict:
 
 
 def _handle_forecast(blood_type: str | None) -> dict:
-    """Return 14-day forecast. If bloodType param provided, filter to that type."""
-    today = datetime.utcnow().date()
+    today = _now().date()
     dates = [(today + timedelta(days=i)).isoformat() for i in range(14)]
-
     types_to_fetch = [blood_type] if blood_type else BLOOD_TYPES
     forecast_by_type = {}
 

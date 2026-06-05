@@ -30,10 +30,13 @@ export const updateDonor = (body) =>
 export const activateSurge = (body) =>
   request("/api/v1/surge/activate", { method: "POST", body: JSON.stringify(body) });
 export const getSurgeMonitor = () => request("/api/v1/surge/monitor");
+export const endSurge = (alertId) =>
+  request(`/api/v1/surge/${alertId}/end`, { method: "POST" });
 
 // Schedule
 export const getDrives = (bloodType) =>
   request("/api/v1/schedule/drives" + (bloodType ? "?bloodType=" + bloodType : ""));
+export const getMyBookings = () => request("/api/v1/schedule/bookings");
 export const createBooking = (body) =>
   request("/api/v1/schedule/book", { method: "POST", body: JSON.stringify(body) });
 
@@ -56,6 +59,12 @@ export const bookSlot = (slotId) =>
 export const createDrive = (body) =>
   request("/api/v1/schedule/drives", { method: "POST", body: JSON.stringify(body) });
 export const getHospitalDrives = () => request("/api/v1/hospital/drives");
+export const lookupDonor = (donorId) => request(`/api/v1/hospital/donor?donorId=${encodeURIComponent(donorId)}`);
+export const recordDonation = (body) =>
+  request("/api/v1/admin/donations", { method: "POST", body: JSON.stringify(body) });
+
+// Blood stock (live Red Cross SG scrape, cached every 15 min via EventBridge)
+export const getBloodStock = () => request("/api/v1/blood-stock");
 
 // Retain
 export const getRetainStats = () => request("/api/v1/retain/stats");

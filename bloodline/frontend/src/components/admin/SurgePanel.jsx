@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { activateSurge, getAllAlerts } from "../../api";
+import { activateSurge, endSurge, getAllAlerts } from "../../api";
 import { BL } from "../../tokens";
 
 const BLOOD_TYPES = ["O-", "O+", "A-", "A+", "B-", "B+", "AB-", "AB+"];
@@ -52,10 +52,25 @@ export default function SurgePanel() {
   const [result,     setResult]     = useState(null);
   const [error,      setError]      = useState("");
   const [alerts,     setAlerts]     = useState([]);
+  const [endingId,   setEndingId]   = useState(null);
 
-  useEffect(() => {
+  function loadAlerts() {
     getAllAlerts().then(d => setAlerts(d.alerts ?? [])).catch(() => {});
-  }, [result]);
+  }
+
+  useEffect(() => { loadAlerts(); }, [result]);
+
+  async function handleEndSurge(alertId) {
+    setEndingId(alertId);
+    try {
+      await endSurge(alertId);
+      loadAlerts();
+    } catch (e) {
+      console.error("End surge failed:", e.message);
+    } finally {
+      setEndingId(null);
+    }
+  }
 
   async function handleActivate(e) {
     e.preventDefault();
@@ -305,6 +320,20 @@ export default function SurgePanel() {
                     <span style={{ fontFamily: BL.mono, fontSize: 10, fontWeight: 600, color: a.status === "active" ? BL.need.ok.fg : BL.muted }}>
                       {a.status?.toUpperCase()}
                     </span>
+                    {a.status === "active" && (
+                      <button
+                        onClick={() => handleEndSurge(a.alertId)}
+                        disabled={endingId === a.alertId}
+                        style={{
+                          background: "none", border: `1px solid ${BL.surge}`, borderRadius: 4,
+                          color: BL.surge, fontFamily: BL.mono, fontSize: 9, letterSpacing: 0.4,
+                          padding: "3px 8px", cursor: "pointer", textTransform: "uppercase",
+                          opacity: endingId === a.alertId ? 0.5 : 1,
+                        }}
+                      >
+                        {endingId === a.alertId ? "Ending…" : "End"}
+                      </button>
+                    )}
                   </div>
                   <div style={{ display: "flex", gap: 20, fontFamily: BL.mono, fontSize: 11 }}>
                     <div style={{ textAlign: "center" }}>
