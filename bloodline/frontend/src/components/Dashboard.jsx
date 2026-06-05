@@ -13,18 +13,26 @@ import MySlotsPanel from "./hospital/MySlotsPanel";
 import CreateSlotPanel from "./hospital/CreateSlotPanel";
 import CheckinPanel from "./hospital/CheckinPanel";
 
-function decodeGroups(token) {
-  if (!token) return [];
+function decodePayload(token) {
+  if (!token) return {};
   try {
     const base64url = token.split(".")[1];
     const base64 = base64url.replaceAll("-", "+").replaceAll("_", "/").padEnd(
       base64url.length + (4 - (base64url.length % 4)) % 4, "="
     );
-    const payload = JSON.parse(atob(base64));
-    return payload["cognito:groups"] ?? [];
+    return JSON.parse(atob(base64));
   } catch {
-    return [];
+    return {};
   }
+}
+
+function decodeGroups(token) {
+  return decodePayload(token)["cognito:groups"] ?? [];
+}
+
+function decodeHospitalName(token) {
+  const p = decodePayload(token);
+  return p.name ?? p["cognito:username"] ?? p.email ?? "Hospital";
 }
 
 function isAdmin(token) {
@@ -56,7 +64,7 @@ const HOSPITAL_TABS = [
   { id: "hcheckin", label: "Check-in" },
 ];
 
-function PanelContent({ tab, onLogout }) {
+function PanelContent({ tab, hospitalName }) {
   if (tab === "home")     return <HomePanel />;
   if (tab === "drives")   return <DonorDrivesPanel />;
   if (tab === "impact")   return <ImpactPanel />;
@@ -67,7 +75,7 @@ function PanelContent({ tab, onLogout }) {
   if (tab === "donors")   return <DonorsPanel />;
   if (tab === "demand")   return <DemandPanel />;
   if (tab === "hslots")    return <MySlotsPanel />;
-  if (tab === "hcreate")   return <CreateSlotPanel />;
+  if (tab === "hcreate")   return <CreateSlotPanel hospitalName={hospitalName} />;
   if (tab === "hcheckin")  return <CheckinPanel />;
   return null;
 }
@@ -346,7 +354,7 @@ function DonorMobileLayout({ tab, setTab, onLogout }) {
 }
 
 // ── Hospital layout: same dark sidebar as admin ──────────────────────────────
-function HospitalDashboard({ tab, setTab, onLogout }) {
+function HospitalDashboard({ tab, setTab, onLogout, hospitalName }) {
   const activeLabel = HOSPITAL_TABS.find(t => t.id === tab)?.label ?? "";
   const ACCENT = "#2563a8"; // hospital blue accent
 
@@ -428,7 +436,7 @@ function HospitalDashboard({ tab, setTab, onLogout }) {
         {/* Panel content */}
         <div style={{ flex: 1, overflowY: "auto", background: BL.paper }}>
           <div style={{ maxWidth: 1100, padding: 24 }}>
-            <PanelContent tab={tab} />
+            <PanelContent tab={tab} hospitalName={hospitalName} />
           </div>
         </div>
       </div>
@@ -441,8 +449,9 @@ export default function Dashboard({ token, onLogout }) {
   const hospital = !admin && isHospital(token);
   const tabs = admin ? ADMIN_TABS : hospital ? HOSPITAL_TABS : DONOR_TABS;
   const [tab, setTab] = useState(tabs[0].id);
+  const hospitalName = hospital ? decodeHospitalName(token) : null;
 
   if (admin)    return <AdminDashboard    tab={tab} setTab={setTab} onLogout={onLogout} />;
-  if (hospital) return <HospitalDashboard tab={tab} setTab={setTab} onLogout={onLogout} />;
+  if (hospital) return <HospitalDashboard tab={tab} setTab={setTab} onLogout={onLogout} hospitalName={hospitalName} />;
   return <DonorDashboard tab={tab} setTab={setTab} onLogout={onLogout} />;
 }

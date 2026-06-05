@@ -23,9 +23,9 @@ const s = {
   err: { fontFamily: BL.sans, color: BL.need.critical.fg, fontSize: 13, marginTop: 14 },
 };
 
-const EMPTY = { name: "", location: "", date: "", startTime: "", endTime: "", capacity: "", notes: "" };
+const EMPTY = { name: "", date: "", startTime: "", endTime: "", capacity: "", notes: "" };
 
-export default function CreateSlotPanel() {
+export default function CreateSlotPanel({ hospitalName }) {
   const [form, setForm] = useState(EMPTY);
   const [selectedTypes, setSelectedTypes] = useState([]);
   const [submitting, setSubmitting] = useState(false);
@@ -46,7 +46,7 @@ export default function CreateSlotPanel() {
     try {
       await createDrive({
         name: form.name,
-        location: form.location,
+        location: hospitalName,
         date: form.date,
         startTime: form.startTime,
         endTime: form.endTime,
@@ -82,14 +82,10 @@ export default function CreateSlotPanel() {
         </div>
 
         <div style={s.group}>
-          <label style={s.label}>Location / venue</label>
-          <input
-            style={s.input}
-            placeholder="e.g. SGH, Block 6, Level 1 Atrium"
-            value={form.location}
-            onChange={e => field("location", e.target.value)}
-            required
-          />
+          <div style={s.label}>Location / venue</div>
+          <div style={{ ...s.input, color: BL.muted, background: BL.fill, cursor: "default" }}>
+            {hospitalName}
+          </div>
         </div>
 
         <div style={s.row}>
