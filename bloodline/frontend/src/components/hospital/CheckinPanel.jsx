@@ -260,7 +260,7 @@ export default function CheckinPanel() {
               display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
             }}
           >
-            <span style={{ fontSize: 18 }}>⬛</span> Scan QR code
+            Scan QR code
           </button>
 
           {/* Divider */}

@@ -30,6 +30,8 @@ export const updateDonor = (body) =>
 export const activateSurge = (body) =>
   request("/api/v1/surge/activate", { method: "POST", body: JSON.stringify(body) });
 export const getSurgeMonitor = () => request("/api/v1/surge/monitor");
+export const endSurge = (alertId) =>
+  request(`/api/v1/surge/${alertId}/end`, { method: "POST" });
 
 // Schedule
 export const getDrives = (bloodType) =>
@@ -38,13 +40,31 @@ export const getMyBookings = () => request("/api/v1/schedule/bookings");
 export const createBooking = (body) =>
   request("/api/v1/schedule/book", { method: "POST", body: JSON.stringify(body) });
 
-// Hospital
+// Hospital — profile & directory
+export const getHospitals = () => request("/api/v1/hospitals");
+export const getHospitalProfile = () => request("/api/v1/hospital/profile");
+export const updateHospitalProfile = (body) =>
+  request("/api/v1/hospital/profile", { method: "PUT", body: JSON.stringify(body) });
+
+// Donation slots — hospital manages, donors book
+export const createSlot = (body) =>
+  request("/api/v1/hospital/slots", { method: "POST", body: JSON.stringify(body) });
+export const getHospitalSlots = () => request("/api/v1/hospital/slots");
+export const getSlots = (bloodType) =>
+  request("/api/v1/slots" + (bloodType ? `?bloodType=${bloodType}` : ""));
+export const bookSlot = (slotId) =>
+  request(`/api/v1/slots/${slotId}/book`, { method: "POST" });
+
+// Blood drives — hospital creates, admin approves
 export const createDrive = (body) =>
   request("/api/v1/schedule/drives", { method: "POST", body: JSON.stringify(body) });
 export const getHospitalDrives = () => request("/api/v1/hospital/drives");
 export const lookupDonor = (donorId) => request(`/api/v1/hospital/donor?donorId=${encodeURIComponent(donorId)}`);
 export const recordDonation = (body) =>
   request("/api/v1/admin/donations", { method: "POST", body: JSON.stringify(body) });
+
+// Blood stock (live Red Cross SG scrape, cached every 15 min via EventBridge)
+export const getBloodStock = () => request("/api/v1/blood-stock");
 
 // Retain
 export const getRetainStats = () => request("/api/v1/retain/stats");

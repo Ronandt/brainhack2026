@@ -12,6 +12,8 @@ import DemandPanel from "./admin/DemandPanel";
 import MySlotsPanel from "./hospital/MySlotsPanel";
 import CreateSlotPanel from "./hospital/CreateSlotPanel";
 import CheckinPanel from "./hospital/CheckinPanel";
+import SetupLocationPanel from "./hospital/SetupLocationPanel";
+import { getHospitalProfile } from "../api";
 
 function decodePayload(token) {
   if (!token) return {};
@@ -30,10 +32,6 @@ function decodeGroups(token) {
   return decodePayload(token)["cognito:groups"] ?? [];
 }
 
-function decodeHospitalName(token) {
-  const p = decodePayload(token);
-  return p.name ?? p["cognito:username"] ?? p.email ?? "Hospital";
-}
 
 function isAdmin(token) {
   return decodeGroups(token).includes("HSAAdmin");
@@ -354,62 +352,96 @@ function DonorMobileLayout({ tab, setTab, onLogout }) {
 }
 
 // ── Hospital layout: same dark sidebar as admin ──────────────────────────────
-function HospitalDashboard({ tab, setTab, onLogout, hospitalName }) {
+function HospitalDashboard({ tab, setTab, onLogout }) {
+  const [location, setLocation] = useState(null);
+  const [locationLoading, setLocationLoading] = useState(true);
   const activeLabel = HOSPITAL_TABS.find(t => t.id === tab)?.label ?? "";
-  const ACCENT = "#2563a8"; // hospital blue accent
+  const ACCENT = "#2563a8";
+
+  useEffect(() => {
+    getHospitalProfile()
+      .then(d => setLocation(d.profile?.location ?? null))
+      .catch(() => setLocation(null))
+      .finally(() => setLocationLoading(false));
+  }, []);
+
+  const sidebar = (
+    <div style={{
+      width: 200, background: "#1a1917", color: "#e9e6e0",
+      display: "flex", flexDirection: "column", flexShrink: 0,
+    }}>
+      <div style={{ padding: "18px 16px 12px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <div style={{ width: 18, height: 18, borderRadius: 3, background: ACCENT }} />
+          <span style={{ fontFamily: BL.sans, fontSize: 14, fontWeight: 600 }}>BloodLine</span>
+        </div>
+        <div style={{ fontFamily: BL.mono, fontSize: 9, color: "#8e8a82", marginTop: 4, letterSpacing: 0.8 }}>
+          HOSPITAL PORTAL · PROD
+        </div>
+      </div>
+
+      <div style={{ padding: "8px", flex: 1 }}>
+        {HOSPITAL_TABS.map(t => (
+          <button
+            key={t.id}
+            onClick={() => setTab(t.id)}
+            style={{
+              display: "block", width: "100%", textAlign: "left",
+              padding: "8px 12px", borderRadius: 4, marginBottom: 2, cursor: "pointer",
+              background: tab === t.id ? "#2a2723" : "transparent",
+              fontFamily: BL.sans, fontSize: 13, border: "none",
+              color: tab === t.id ? "#fff" : "#bdb8b0",
+              borderLeft: tab === t.id ? `2px solid ${ACCENT}` : "2px solid transparent",
+            }}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      <div style={{ padding: "12px 16px", borderTop: "1px solid #2a2723" }}>
+        <div style={{ fontFamily: BL.mono, fontSize: 9, color: "#8e8a82", marginBottom: 8, letterSpacing: 0.8 }}>
+          {location ?? "HOSPITAL STAFF"} · PROD
+        </div>
+        <button
+          onClick={onLogout}
+          style={{
+            width: "100%", background: "none", border: "1px solid #2a2723",
+            color: "#8e8a82", borderRadius: 6, padding: "6px 0",
+            cursor: "pointer", fontSize: 12, fontFamily: BL.sans,
+          }}
+        >
+          Sign out
+        </button>
+      </div>
+    </div>
+  );
+
+  if (locationLoading) {
+    return (
+      <div style={{ display: "flex", minHeight: "100vh", fontFamily: BL.sans }}>
+        {sidebar}
+        <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <span style={{ fontFamily: BL.sans, color: BL.muted, fontSize: 13 }}>Loading…</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (!location) {
+    return (
+      <div style={{ display: "flex", minHeight: "100vh", fontFamily: BL.sans }}>
+        {sidebar}
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0, background: BL.paper }}>
+          <SetupLocationPanel onComplete={loc => setLocation(loc)} />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={{ display: "flex", minHeight: "100vh", fontFamily: BL.sans }}>
-      {/* Left rail */}
-      <div style={{
-        width: 200, background: "#1a1917", color: "#e9e6e0",
-        display: "flex", flexDirection: "column", flexShrink: 0,
-      }}>
-        <div style={{ padding: "18px 16px 12px" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <div style={{ width: 18, height: 18, borderRadius: 3, background: ACCENT }} />
-            <span style={{ fontFamily: BL.sans, fontSize: 14, fontWeight: 600 }}>BloodLine</span>
-          </div>
-          <div style={{ fontFamily: BL.mono, fontSize: 9, color: "#8e8a82", marginTop: 4, letterSpacing: 0.8 }}>
-            HOSPITAL PORTAL · PROD
-          </div>
-        </div>
-
-        <div style={{ padding: "8px", flex: 1 }}>
-          {HOSPITAL_TABS.map(t => (
-            <button
-              key={t.id}
-              onClick={() => setTab(t.id)}
-              style={{
-                display: "block", width: "100%", textAlign: "left",
-                padding: "8px 12px", borderRadius: 4, marginBottom: 2, cursor: "pointer",
-                background: tab === t.id ? "#2a2723" : "transparent",
-                fontFamily: BL.sans, fontSize: 13, border: "none",
-                color: tab === t.id ? "#fff" : "#bdb8b0",
-                borderLeft: tab === t.id ? `2px solid ${ACCENT}` : "2px solid transparent",
-              }}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
-
-        <div style={{ padding: "12px 16px", borderTop: "1px solid #2a2723" }}>
-          <div style={{ fontFamily: BL.mono, fontSize: 9, color: "#8e8a82", marginBottom: 8, letterSpacing: 0.8 }}>
-            HOSPITAL STAFF · PROD
-          </div>
-          <button
-            onClick={onLogout}
-            style={{
-              width: "100%", background: "none", border: "1px solid #2a2723",
-              color: "#8e8a82", borderRadius: 6, padding: "6px 0",
-              cursor: "pointer", fontSize: 12, fontFamily: BL.sans,
-            }}
-          >
-            Sign out
-          </button>
-        </div>
-      </div>
+      {sidebar}
 
       {/* Main content */}
       <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
@@ -436,7 +468,7 @@ function HospitalDashboard({ tab, setTab, onLogout, hospitalName }) {
         {/* Panel content */}
         <div style={{ flex: 1, overflowY: "auto", background: BL.paper }}>
           <div style={{ maxWidth: 1100, padding: 24 }}>
-            <PanelContent tab={tab} hospitalName={hospitalName} />
+            <PanelContent tab={tab} hospitalName={location} />
           </div>
         </div>
       </div>
@@ -449,9 +481,8 @@ export default function Dashboard({ token, onLogout }) {
   const hospital = !admin && isHospital(token);
   const tabs = admin ? ADMIN_TABS : hospital ? HOSPITAL_TABS : DONOR_TABS;
   const [tab, setTab] = useState(tabs[0].id);
-  const hospitalName = hospital ? decodeHospitalName(token) : null;
 
   if (admin)    return <AdminDashboard    tab={tab} setTab={setTab} onLogout={onLogout} />;
-  if (hospital) return <HospitalDashboard tab={tab} setTab={setTab} onLogout={onLogout} hospitalName={hospitalName} />;
+  if (hospital) return <HospitalDashboard tab={tab} setTab={setTab} onLogout={onLogout} />;
   return <DonorDashboard tab={tab} setTab={setTab} onLogout={onLogout} />;
 }

@@ -4,17 +4,20 @@ import { BL } from "../tokens";
 
 const BLOOD_TYPES = ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"];
 
-function AppHeader({ sub, title }) {
+function AppHeader({ sub, title, right }) {
   return (
-    <div style={{ padding: "0 0 10px" }}>
-      {sub && (
-        <div style={{ fontFamily: BL.mono, fontSize: 9, letterSpacing: 0.6, textTransform: "uppercase", color: BL.muted, marginBottom: 2 }}>
-          {sub}
+    <div style={{ padding: "0 0 10px", display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}>
+      <div>
+        {sub && (
+          <div style={{ fontFamily: BL.mono, fontSize: 9, letterSpacing: 0.6, textTransform: "uppercase", color: BL.muted, marginBottom: 2 }}>
+            {sub}
+          </div>
+        )}
+        <div style={{ fontFamily: BL.sans, fontSize: 22, fontWeight: 600, color: BL.ink, letterSpacing: -0.4, lineHeight: 1.2 }}>
+          {title}
         </div>
-      )}
-      <div style={{ fontFamily: BL.sans, fontSize: 22, fontWeight: 600, color: BL.ink, letterSpacing: -0.4, lineHeight: 1.2 }}>
-        {title}
       </div>
+      {right}
     </div>
   );
 }
@@ -47,7 +50,8 @@ export default function DonorDrivesPanel() {
   }, []);
 
   async function loadDrives(bt) {
-    setLoading(true); setError("");
+    setLoading(true);
+    setError("");
     try {
       const data = await getDrives(bt || null);
       setDrives(data.drives ?? []);
@@ -172,7 +176,7 @@ export default function DonorDrivesPanel() {
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontFamily: BL.sans, fontSize: 14, fontWeight: 600, color: BL.ink, marginBottom: 4 }}>
-                    {drive.name ?? "Blood Drive"}
+                    {drive.name ?? drive.location}
                   </div>
                   <div style={{ fontFamily: BL.mono, fontSize: 10, color: BL.muted, letterSpacing: 0.4 }}>
                     {drive.date}{drive.startTime ? ` · ${drive.startTime}` : ""} · {drive.location}
@@ -191,13 +195,16 @@ export default function DonorDrivesPanel() {
                 </div>
               </div>
 
-              {/* Capacity bar */}
               <div style={{ marginBottom: 12 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                  <Tag color={almostFull ? BL.need.urgent.fg : BL.muted}>
+                  <span style={{ fontFamily: BL.mono, fontSize: 9, letterSpacing: 0.6, textTransform: "uppercase", color: almostFull ? BL.need.urgent.fg : BL.muted }}>
                     {drive.booked ?? 0} / {drive.capacity ?? "?"} slots
-                  </Tag>
-                  {almostFull && <Tag color={BL.need.urgent.fg}>Almost full</Tag>}
+                  </span>
+                  {almostFull && (
+                    <span style={{ fontFamily: BL.mono, fontSize: 9, letterSpacing: 0.6, textTransform: "uppercase", color: BL.need.urgent.fg }}>
+                      Almost full
+                    </span>
+                  )}
                 </div>
                 <div style={{ height: 4, background: BL.fill, borderRadius: 2, overflow: "hidden" }}>
                   <div style={{
