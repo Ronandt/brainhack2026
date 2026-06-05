@@ -34,6 +34,7 @@ export const getSurgeMonitor = () => request("/api/v1/surge/monitor");
 // Schedule
 export const getDrives = (bloodType) =>
   request("/api/v1/schedule/drives" + (bloodType ? "?bloodType=" + bloodType : ""));
+export const getMyBookings = () => request("/api/v1/schedule/bookings");
 export const createBooking = (body) =>
   request("/api/v1/schedule/book", { method: "POST", body: JSON.stringify(body) });
 
@@ -41,6 +42,9 @@ export const createBooking = (body) =>
 export const createDrive = (body) =>
   request("/api/v1/schedule/drives", { method: "POST", body: JSON.stringify(body) });
 export const getHospitalDrives = () => request("/api/v1/hospital/drives");
+export const lookupDonor = (donorId) => request(`/api/v1/hospital/donor?donorId=${encodeURIComponent(donorId)}`);
+export const recordDonation = (body) =>
+  request("/api/v1/admin/donations", { method: "POST", body: JSON.stringify(body) });
 
 // Retain
 export const getRetainStats = () => request("/api/v1/retain/stats");

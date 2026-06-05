@@ -6,7 +6,7 @@ from datetime import datetime
 import boto3
 from aws_lambda_powertools import Logger
 from aws_lambda_powertools.utilities.typing import LambdaContext
-from boto3.dynamodb.conditions import Attr
+from boto3.dynamodb.conditions import Attr, Key
 
 logger = Logger()
 dynamodb = boto3.resource("dynamodb")
@@ -39,6 +39,8 @@ def lambda_handler(event: dict, context: LambdaContext) -> dict:
 
     if "/hospital/drives" in path and method == "GET":
         return _list_hospital_drives(event)
+    if "/bookings" in path and method == "GET":
+        return _list_my_bookings(event)
     if "/drives" in path and method == "GET":
         return _list_drives(event)
     if "/drives" in path and method == "POST":
@@ -47,6 +49,31 @@ def lambda_handler(event: dict, context: LambdaContext) -> dict:
         return _create_booking(event)
 
     return _response(404, {"error": "Not found"})
+
+
+def _list_my_bookings(event: dict) -> dict:
+    """Return all confirmed bookings for this donor, enriched with drive details."""
+    donor_id = _donor_id_from_event(event)
+    today = datetime.utcnow().date().isoformat()
+
+    result = bookings_table.query(
+        KeyConditionExpression=Key("donorId").eq(donor_id)
+    )
+    bookings = [b for b in result.get("Items", []) if b.get("status") == "confirmed"]
+
+    enriched = []
+    for booking in bookings:
+        drive_result = drives_table.get_item(Key={"driveId": booking["driveId"]})
+        drive = drive_result.get("Item", {})
+        # Only include upcoming drives (drive date >= today)
+        if drive.get("date", "") >= today:
+            for key in ("capacity", "booked", "availableSlots"):
+                if key in drive:
+                    drive[key] = int(drive[key])
+            enriched.append({**booking, "drive": drive})
+
+    logger.info("Bookings listed", donor_id=donor_id, count=len(enriched))
+    return _response(200, {"bookings": enriched, "count": len(enriched)})
 
 
 def _list_hospital_drives(event: dict) -> dict:

@@ -11,6 +11,7 @@ import DonorsPanel from "./admin/DonorsPanel";
 import DemandPanel from "./admin/DemandPanel";
 import MySlotsPanel from "./hospital/MySlotsPanel";
 import CreateSlotPanel from "./hospital/CreateSlotPanel";
+import CheckinPanel from "./hospital/CheckinPanel";
 
 function decodeGroups(token) {
   if (!token) return [];
@@ -50,8 +51,9 @@ const ADMIN_TABS = [
 ];
 
 const HOSPITAL_TABS = [
-  { id: "hslots",  label: "My Slots" },
-  { id: "hcreate", label: "Create Slot" },
+  { id: "hslots",   label: "My Slots" },
+  { id: "hcreate",  label: "Create Slot" },
+  { id: "hcheckin", label: "Check-in" },
 ];
 
 function PanelContent({ tab, onLogout }) {
@@ -64,8 +66,9 @@ function PanelContent({ tab, onLogout }) {
   if (tab === "adrives")  return <DrivesPanel />;
   if (tab === "donors")   return <DonorsPanel />;
   if (tab === "demand")   return <DemandPanel />;
-  if (tab === "hslots")   return <MySlotsPanel />;
-  if (tab === "hcreate")  return <CreateSlotPanel />;
+  if (tab === "hslots")    return <MySlotsPanel />;
+  if (tab === "hcreate")   return <CreateSlotPanel />;
+  if (tab === "hcheckin")  return <CheckinPanel />;
   return null;
 }
 

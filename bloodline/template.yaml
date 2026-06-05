@@ -403,6 +403,12 @@ Resources:
         - DynamoDBCrudPolicy:
             TableName: !Ref BloodDrivesTable
       Events:
+        ListMyBookings:
+          Type: Api
+          Properties:
+            RestApiId: !Ref BloodlineApi
+            Path: /api/v1/schedule/bookings
+            Method: GET
         ListHospitalDrives:
           Type: Api
           Properties:
@@ -472,11 +478,11 @@ Resources:
       FunctionName: !Sub bloodline-admin-${Stage}
       CodeUri: src/admin/
       Handler: handler.lambda_handler
-      Description: HSA admin console — donor segments, drive approvals, stock overview, demand input
+      Description: HSA admin console — donor segments, drive approvals, stock overview, demand input, donation recording
       Policies:
-        - DynamoDBReadPolicy:
+        - DynamoDBCrudPolicy:
             TableName: !Ref DonorsTable
-        - DynamoDBReadPolicy:
+        - DynamoDBCrudPolicy:
             TableName: !Ref DonationsTable
         - DynamoDBCrudPolicy:
             TableName: !Ref BloodDrivesTable
@@ -528,6 +534,18 @@ Resources:
           Properties:
             RestApiId: !Ref BloodlineApi
             Path: /api/v1/admin/demand
+            Method: POST
+        LookupDonor:
+          Type: Api
+          Properties:
+            RestApiId: !Ref BloodlineApi
+            Path: /api/v1/hospital/donor
+            Method: GET
+        RecordDonation:
+          Type: Api
+          Properties:
+            RestApiId: !Ref BloodlineApi
+            Path: /api/v1/admin/donations
             Method: POST
 
   DiagnosticsFunction:
