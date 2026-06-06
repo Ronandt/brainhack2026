@@ -1,6 +1,6 @@
 import json
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import boto3
 from aws_lambda_powertools import Logger
@@ -223,7 +223,7 @@ def _lookup_donor(event: dict) -> dict:
         from datetime import timedelta
         last_date = datetime.fromisoformat(last_donated)
         next_eligible = last_date + timedelta(days=ELIGIBILITY_DAYS)
-        days_remaining = max(0, (datetime.utcnow() - next_eligible).days * -1)
+        days_remaining = max(0, (datetime.now(timezone.utc) - next_eligible).days * -1)
         eligible = days_remaining == 0
     else:
         eligible = True
