@@ -11,7 +11,7 @@ const pool = new CognitoUserPool({
   ClientId: COGNITO_CLIENT_ID,
 });
 
-export function signUp(email, password, bloodType, postalCode) {
+export function signUp(email, password, name, bloodType, postalCode) {
   return new Promise((resolve, reject) => {
     const attributes = [
       new CognitoUserAttribute({ Name: "custom:blood_type", Value: bloodType }),

@@ -1,10 +1,5 @@
-<<<<<<< HEAD
 import { useState, useEffect, useMemo } from "react";
-import { getDrives, createBooking } from "../api";
-=======
-import { useState, useEffect } from "react";
 import { getDrives, createBooking, getMyBookings } from "../api";
->>>>>>> refs/remotes/origin/main
 import { BL } from "../tokens";
 
 const BLOOD_TYPES = ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"];
