@@ -5,6 +5,7 @@ import {
   getSlots, bookSlot, getBloodStock,
   getSurgeMonitor, getMyBookings,
 } from "../api";
+import { getToken } from "../auth";
 import { BL, riskToNeed } from "../tokens";
 
 function AppHeader({ sub, title, right }) {
@@ -91,6 +92,18 @@ export default function HomePanel() {
   const [confirming,        setConfirming]        = useState(false);
   const [bookingError,      setBookingError]      = useState(null);
   const [checkedItems,      setCheckedItems]      = useState({});
+  const [userId,            setUserId]            = useState(null);
+
+  // Decode Cognito sub from JWT so QR code always has the real ID
+  useEffect(() => {
+    getToken().then(token => {
+      if (!token) return;
+      try {
+        const payload = JSON.parse(atob(token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/")));
+        setUserId(payload.sub ?? null);
+      } catch {}
+    });
+  }, []);
 
   // Surge snooze — localStorage is fine for a UI preference
   const [snoozedUntil, setSnoozedUntil] = useState(
@@ -433,7 +446,7 @@ export default function HomePanel() {
     const timeRange = drive.startTime
       ? `${drive.startTime}${drive.endTime ? `–${drive.endTime}` : ""}`
       : null;
-    const qrValue   = donor?.donorId ?? "unknown";
+    const qrValue   = donor?.donorId ?? userId ?? "no-id";
 
     return (
       <div>

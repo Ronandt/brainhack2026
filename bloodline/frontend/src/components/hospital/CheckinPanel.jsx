@@ -7,6 +7,7 @@ import { BL } from "../../tokens";
 function QrScanner({ onScan, onClose }) {
   const containerRef = useRef(null);
   const scannerRef   = useRef(null);
+  const firedRef     = useRef(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -19,6 +20,8 @@ function QrScanner({ onScan, onClose }) {
 
       const config = { fps: 12, qrbox: { width: 240, height: 240 } };
       const onDecode = (decodedText) => {
+        if (firedRef.current) return;
+        firedRef.current = true;
         scanner.stop().catch(() => {});
         onScan(decodedText);
       };
@@ -45,7 +48,9 @@ function QrScanner({ onScan, onClose }) {
     }).catch(() => setError("Failed to load QR scanner."));
 
     return () => {
-      if (scannerRef.current) scannerRef.current.stop().catch(() => {});
+      if (scannerRef.current && !firedRef.current) {
+        scannerRef.current.stop().catch(() => {});
+      }
     };
   }, []);
 
@@ -189,8 +194,13 @@ export default function CheckinPanel() {
 
   async function handleScan(decodedText) {
     setScanning(false);
-    setDonorIdInput(decodedText);
-    await runLookup(decodedText);
+    const value = (decodedText ?? "").trim();
+    if (!value || value === "no-id") {
+      setLookupError("QR code is invalid — ask the donor to open their app and try again.");
+      return;
+    }
+    setDonorIdInput(value);
+    await runLookup(value);
   }
 
   async function handleConfirm() {

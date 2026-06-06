@@ -1,6 +1,6 @@
 import json
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import boto3
 from aws_lambda_powertools import Logger
@@ -25,7 +25,7 @@ def _compute_eligibility(last_donated_at: str | None) -> dict:
 
     last_date = datetime.fromisoformat(last_donated_at)
     next_eligible = last_date + timedelta(days=ELIGIBILITY_DAYS)
-    today = datetime.utcnow()
+    today = datetime.now(timezone.utc)
     days_remaining = max(0, (next_eligible - today).days)
 
     return {
