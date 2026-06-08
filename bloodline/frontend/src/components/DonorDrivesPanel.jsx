@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from "react";
-import { getDrives, getSlots, createBooking, bookSlot, getMyBookings } from "../api";
+import { getDrives, getSlots, createBooking, bookSlot, cancelSlotBooking, getMyBookings } from "../api";
 import { BL } from "../tokens";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -591,6 +591,7 @@ export default function DonorDrivesPanel() {
   const [locError,     setLocError]     = useState("");
   const [bookingState, setBookingState] = useState({});
   const [bookedId,     setBookedId]     = useState(null);
+  const [bookedType,   setBookedType]   = useState(null); // "slot" | "drive" — needed to cancel server-side
   const [squadItem,    setSquadItem]    = useState(null);
 
   useEffect(() => {
@@ -598,7 +599,10 @@ export default function DonorDrivesPanel() {
     getMyBookings()
       .then(d => {
         const b = d.bookings?.[0];
-        if (b) setBookedId(b.driveId ?? b.slotId ?? null);
+        if (b) {
+          setBookedId(b.driveId ?? b.slotId ?? null);
+          setBookedType(b.slotId ? "slot" : "drive");
+        }
       })
       .catch(() => {});
   }, []);
@@ -664,12 +668,33 @@ export default function DonorDrivesPanel() {
       }
       setBookingState(prev => ({ ...prev, [id]: { done: true } }));
       setBookedId(id);
+      setBookedType(item._type);
     } catch (e) {
       setBookingState(prev => ({ ...prev, [id]: { error: e.message } }));
     }
   }
 
-  function cancelBooking() { setBookedId(null); setBookingState({}); }
+  async function cancelBooking() {
+    // Slot bookings persist server-side — must be deleted there, or re-booking
+    // hits "you already have a booking for this slot". Drive bookings are local-only.
+    if (bookedType === "slot" && bookedId) {
+      try {
+        await cancelSlotBooking(bookedId);
+      } catch (e) {
+        const gone = e.message?.includes("not found") || e.message?.includes("404");
+        if (!gone) {
+          // Real failure — keep the booking so the UI doesn't lie about state
+          setBookingState({ [bookedId]: { error: e.message } });
+          return;
+        }
+        // 404 → already cancelled server-side; fall through and clear local state
+      }
+    }
+    setBookedId(null);
+    setBookedType(null);
+    setBookingState({});
+    loadAll(); // re-sync slot capacity counts
+  }
 
   function addHostedDrive(drive) { setItems(prev => [drive, ...prev]); }
 

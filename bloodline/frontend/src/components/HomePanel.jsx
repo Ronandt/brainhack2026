@@ -208,7 +208,11 @@ export default function HomePanel() {
   useEffect(() => {
     if (!userType) return;
     getForecast(userType)
-      .then(d => setTypeForecast(d.forecast?.[userType] ?? null))
+      .then(d => {
+        const f = d.forecast ?? {};
+        // Prefer the exact type; fall back to the only series returned (guards key mismatches)
+        setTypeForecast(f[userType] ?? Object.values(f)[0] ?? null);
+      })
       .catch(() => setTypeForecast(null));
   }, [userType]);
 
