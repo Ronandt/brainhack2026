@@ -13,8 +13,8 @@ from aws_lambda_powertools.utilities.typing import LambdaContext
 logger = Logger()
 _cfg = Config(connect_timeout=5, read_timeout=5, retries={"max_attempts": 2})
 dynamodb = boto3.resource("dynamodb", config=_cfg)
-hospitals_table    = dynamodb.Table(os.environ["HOSPITALS_TABLE"])
-slots_table        = dynamodb.Table(os.environ["DONATION_SLOTS_TABLE"])
+hospitals_table    = dynamodb.Table(os.environ.get("HOSPITALS_TABLE", "bloodline-hospitals-dev"))
+slots_table        = dynamodb.Table(os.environ.get("DONATION_SLOTS_TABLE", "bloodline-slots-dev"))
 slot_bookings_table = dynamodb.Table(os.environ.get("SLOT_BOOKINGS_TABLE", "bloodline-slot-bookings-dev"))
 donors_table       = dynamodb.Table(os.environ.get("DONORS_TABLE", "bloodline-donors-dev"))
 

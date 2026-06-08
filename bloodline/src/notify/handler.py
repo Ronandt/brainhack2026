@@ -1,6 +1,7 @@
 import json
+import math
 import os
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 import boto3
 from aws_lambda_powertools import Logger
@@ -13,15 +14,59 @@ dynamodb = boto3.resource("dynamodb")
 ses = boto3.client("ses", config=Config(connect_timeout=5, read_timeout=10, retries={"max_attempts": 2}))
 donors_table = dynamodb.Table(os.environ["DONORS_TABLE"])
 alerts_table = dynamodb.Table(os.environ["ALERTS_TABLE"])
+hospitals_table = dynamodb.Table(os.environ.get("HOSPITALS_TABLE", "bloodline-hospitals-dev"))
 SENDER_EMAIL = os.environ.get("SENDER_EMAIL", "")
 
-# Geo tier radius mapping (km) — used for filtering by postalCode prefix heuristic
-GEO_TIER_RADIUS = {"5km": 1, "15km": 2, "island-wide": None}
+# Surge tier radii in km. island-wide = no distance filter (everyone).
+TIER_RADIUS_KM = {"5km": 5.0, "15km": 15.0, "island-wide": None}
+# A live device fix older than this falls back to the donor's home location.
+LIVE_FIX_FRESHNESS_HOURS = 3
 
 
-def _postal_prefix_length(geo_tier: str) -> int | None:
-    """Simple postal code prefix heuristic for geo filtering (Singapore 6-digit codes)."""
-    return GEO_TIER_RADIUS.get(geo_tier)
+def _haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
+    """Great-circle distance between two lat/lng points, in km."""
+    r = 6371.0
+    d_phi = math.radians(lat2 - lat1)
+    d_lambda = math.radians(lng2 - lng1)
+    a = (math.sin(d_phi / 2) ** 2
+         + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(d_lambda / 2) ** 2)
+    return 2 * r * math.asin(math.sqrt(a))
+
+
+def _effective_location(donor: dict) -> tuple[float, float] | None:
+    """Freshest known donor location: a recent live fix, else home. None if unknown."""
+    live_seen = donor.get("liveSeenAt")
+    if live_seen and donor.get("liveLat") is not None and donor.get("liveLng") is not None:
+        try:
+            seen = datetime.fromisoformat(live_seen)
+            if seen.tzinfo is None:
+                seen = seen.replace(tzinfo=timezone.utc)
+            if datetime.now(timezone.utc) - seen <= timedelta(hours=LIVE_FIX_FRESHNESS_HOURS):
+                return float(donor["liveLat"]), float(donor["liveLng"])
+        except ValueError:
+            pass
+    if donor.get("homeLat") is not None and donor.get("homeLng") is not None:
+        return float(donor["homeLat"]), float(donor["homeLng"])
+    return None
+
+
+def _hospital_coords() -> list[tuple[float, float]]:
+    """Reference points for radius tiers: every hospital/blood bank with coordinates."""
+    items = hospitals_table.scan(ProjectionExpression="lat, lng").get("Items", [])
+    coords = []
+    for h in items:
+        if h.get("lat") is not None and h.get("lng") is not None:
+            coords.append((float(h["lat"]), float(h["lng"])))
+    return coords
+
+
+def _within_radius(donor: dict, banks: list[tuple[float, float]], radius_km: float) -> bool:
+    """True if the donor's effective location is within radius_km of any blood bank."""
+    loc = _effective_location(donor)
+    if loc is None:
+        return False  # unknown location → not matched for narrow tiers
+    dlat, dlng = loc
+    return any(_haversine_km(dlat, dlng, blat, blng) <= radius_km for blat, blng in banks)
 
 
 def _scan_all(filter_expr=None) -> list:
@@ -74,10 +119,20 @@ def _dispatch_notifications(message: dict) -> None:
             cond = Attr("bloodType").eq(bt)
             type_filter = cond if type_filter is None else (type_filter | cond)
         donors = _scan_all(type_filter)
-    logger.info("Donors matched for surge", alert_id=alert_id, blood_types=blood_types, geo_tier=geo_tier, matched=len(donors))
 
-    # TODO: add geo filtering by postal code when location data is populated
-    # For hackathon: island-wide always matches, narrower tiers use postal prefix heuristic
+    # Geo radius filter for narrow tiers: keep donors within N km of any blood bank
+    # (freshest of live device location or geocoded home). island-wide skips this.
+    radius_km = TIER_RADIUS_KM.get(geo_tier)
+    if radius_km is not None:
+        banks = _hospital_coords()
+        before = len(donors)
+        if banks:
+            donors = [d for d in donors if _within_radius(d, banks, radius_km)]
+        else:
+            logger.warning("No hospital coordinates available — radius filter skipped", alert_id=alert_id)
+        logger.info("Radius filter applied", alert_id=alert_id, radius_km=radius_km, banks=len(banks), before=before, after=len(donors))
+
+    logger.info("Donors matched for surge", alert_id=alert_id, blood_types=blood_types, geo_tier=geo_tier, matched=len(donors))
 
     # Every matched donor is moved into surge mode and sees the in-app alert
     # banner (the donor app polls /surge/monitor), so they all count as notified.

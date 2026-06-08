@@ -92,7 +92,7 @@ def _donor_segments():
     """Segment donor pool: active / at-risk / dormant / lapsed."""
     result = donors_table.scan()
     donors = result.get("Items", [])
-    today = datetime.utcnow()
+    today = datetime.now(timezone.utc)
 
     segments = {"active": [], "atRisk": [], "dormant": [], "lapsed": [], "neverDonated": []}
 
@@ -109,7 +109,10 @@ def _donor_segments():
             segments["neverDonated"].append(entry)
             continue
 
-        days_since = (today - datetime.fromisoformat(last)).days
+        last_dt = datetime.fromisoformat(last)
+        if last_dt.tzinfo is None:
+            last_dt = last_dt.replace(tzinfo=timezone.utc)
+        days_since = (today - last_dt).days
         if days_since <= ELIGIBILITY_DAYS:
             segments["active"].append(entry)
         elif days_since <= AT_RISK_DAYS:
@@ -268,6 +271,8 @@ def _lookup_donor(event: dict) -> dict:
     if last_donated:
         from datetime import timedelta
         last_date = datetime.fromisoformat(last_donated)
+        if last_date.tzinfo is None:
+            last_date = last_date.replace(tzinfo=timezone.utc)
         next_eligible = last_date + timedelta(days=ELIGIBILITY_DAYS)
         days_remaining = max(0, (datetime.now(timezone.utc) - next_eligible).days * -1)
         eligible = days_remaining == 0
