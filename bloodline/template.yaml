@@ -32,6 +32,11 @@ Parameters:
     Type: String
     Default: ""
     Description: SES-verified "from" address used for surge alert emails (leave blank to disable email)
+  LtaAccountKey:
+    Type: String
+    Default: "SGVWAY+7SwSN1dTLV9kN4Q=="
+    NoEcho: true
+    Description: LTA DataMall AccountKey used to fetch live traffic incidents for the HSA ops feed
 
 # ---------------------------------------------------------------------------
 # API GATEWAY
@@ -590,6 +595,9 @@ Resources:
       CodeUri: src/admin/
       Handler: handler.lambda_handler
       Description: HSA admin console — donor segments, drive approvals, stock overview, demand input, donation recording
+      Environment:
+        Variables:
+          LTA_ACCOUNT_KEY: !Ref LtaAccountKey
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref DonorsTable
@@ -639,6 +647,12 @@ Resources:
           Properties:
             RestApiId: !Ref BloodlineApi
             Path: /api/v1/admin/alerts
+            Method: GET
+        GetTrafficIncidents:
+          Type: Api
+          Properties:
+            RestApiId: !Ref BloodlineApi
+            Path: /api/v1/admin/traffic-incidents
             Method: GET
         SubmitHospitalDemand:
           Type: Api

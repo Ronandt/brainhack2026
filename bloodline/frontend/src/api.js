@@ -83,5 +83,6 @@ export const approveDrive = (driveId) => request(`/api/v1/admin/drives/${driveId
 export const rejectDrive = (driveId) => request(`/api/v1/admin/drives/${driveId}/reject`, { method: "POST" });
 export const getStockOverview = () => request("/api/v1/admin/stock");
 export const getAllAlerts = () => request("/api/v1/admin/alerts");
+export const getTrafficIncidents = () => request("/api/v1/admin/traffic-incidents");
 export const submitHospitalDemand = (body) =>
   request("/api/v1/admin/demand", { method: "POST", body: JSON.stringify(body) });

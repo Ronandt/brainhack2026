@@ -24,6 +24,22 @@ def _postal_prefix_length(geo_tier: str) -> int | None:
     return GEO_TIER_RADIUS.get(geo_tier)
 
 
+def _scan_all(filter_expr=None) -> list:
+    """Scan the donors table fully, following pagination (1MB page cap).
+
+    Pass filter_expr=None to return every donor (used for island-wide surges).
+    """
+    items = []
+    kwargs = {"FilterExpression": filter_expr} if filter_expr is not None else {}
+    while True:
+        result = donors_table.scan(**kwargs)
+        items.extend(result.get("Items", []))
+        last_key = result.get("LastEvaluatedKey")
+        if not last_key:
+            return items
+        kwargs["ExclusiveStartKey"] = last_key
+
+
 @logger.inject_lambda_context
 def lambda_handler(event: dict, context: LambdaContext) -> dict:
     for record in event.get("Records", []):
@@ -34,50 +50,64 @@ def lambda_handler(event: dict, context: LambdaContext) -> dict:
 
 def _dispatch_notifications(message: dict) -> None:
     alert_id = message["alertId"]
-    blood_type = message["bloodType"]
+    # Accept a list of blood types (bloodTypes) or a single one (bloodType, legacy)
+    blood_types = message.get("bloodTypes")
+    if not blood_types:
+        single = message.get("bloodType")
+        blood_types = [single] if single else []
     geo_tier = message["geoTier"]
-    alert_message = message.get("message", f"Urgent: {blood_type} blood needed!")
+    blood_label = "/".join(blood_types) if blood_types else "blood"
+    alert_message = message.get("message") or f"Urgent: {blood_label} blood needed!"
 
-    logger.info("Dispatching notifications", alert_id=alert_id, blood_type=blood_type, geo_tier=geo_tier)
+    logger.info("Dispatching notifications", alert_id=alert_id, blood_types=blood_types, geo_tier=geo_tier)
 
-    # Scan for eligible donors matching blood type
-    filter_expr = Attr("bloodType").eq(blood_type) & Attr("eligible").eq(True)
-    result = donors_table.scan(FilterExpression=filter_expr)
-    donors = result.get("Items", [])
+    # Match the donor-app banner: an island-wide surge reaches every donor,
+    # narrower tiers are scoped to the requested blood types. We don't exclude
+    # donors in their rest window (the app surfaces the surge to them too so they
+    # can rally others), and `eligible` is computed at read-time, never stored,
+    # so it can't be used as a scan filter.
+    if geo_tier == "island-wide":
+        donors = _scan_all()
+    else:
+        type_filter = None
+        for bt in blood_types:
+            cond = Attr("bloodType").eq(bt)
+            type_filter = cond if type_filter is None else (type_filter | cond)
+        donors = _scan_all(type_filter)
+    logger.info("Donors matched for surge", alert_id=alert_id, blood_types=blood_types, geo_tier=geo_tier, matched=len(donors))
 
     # TODO: add geo filtering by postal code when location data is populated
     # For hackathon: island-wide always matches, narrower tiers use postal prefix heuristic
 
-    notified = 0
+    # Every matched donor is moved into surge mode and sees the in-app alert
+    # banner (the donor app polls /surge/monitor), so they all count as notified.
+    # Email + push are supplementary channels, tracked separately.
+    notified = len(donors)
     emails_sent = 0
+    push_sent = 0
     for donor in donors:
-        reached = False
-
         push_token = donor.get("pushToken")
         if push_token:
-            _send_push(push_token, blood_type, alert_message, alert_id)
-            reached = True
+            _send_push(push_token, blood_label, alert_message, alert_id)
+            push_sent += 1
 
         email = donor.get("email")
-        if email and _send_email(email, blood_type, alert_message, alert_id):
+        if email and _send_email(email, blood_label, alert_message, alert_id):
             emails_sent += 1
-            reached = True
-
-        if reached:
-            notified += 1
 
     # Update alert with notification counts (surfaced live on the HSA console + donor site)
     alerts_table.update_item(
         Key={"alertId": alert_id},
-        UpdateExpression="SET donorsNotified = :n, emailsSent = :e, lastUpdated = :t",
+        UpdateExpression="SET donorsNotified = :n, emailsSent = :e, pushSent = :p, lastUpdated = :t",
         ExpressionAttributeValues={
             ":n": notified,
             ":e": emails_sent,
+            ":p": push_sent,
             ":t": datetime.utcnow().isoformat(),
         },
     )
 
-    logger.info("Notifications dispatched", alert_id=alert_id, count=notified, emails=emails_sent)
+    logger.info("Notifications dispatched", alert_id=alert_id, notified=notified, emails=emails_sent, push=push_sent)
 
 
 def _send_push(push_token: str, blood_type: str, message: str, alert_id: str) -> None:

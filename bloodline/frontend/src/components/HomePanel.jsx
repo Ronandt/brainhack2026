@@ -145,7 +145,10 @@ export default function HomePanel() {
         setSurgeAlerts(alerts);
         // Fire a browser push for any relevant new surge
         alerts
-          .filter(a => a.bloodType === donor?.bloodType || a.geoTier === "island-wide")
+          .filter(a => {
+            const types = a.bloodTypes ?? (a.bloodType ? [a.bloodType] : []);
+            return a.geoTier === "island-wide" || types.includes(donor?.bloodType);
+          })
           .forEach(pushBrowserNotification);
       })
       .catch(err => console.error("[Surge] getSurgeMonitor failed:", err));
@@ -184,9 +187,16 @@ export default function HomePanel() {
 
   // Active surge: hidden if snoozed OR donor already has a confirmed booking
   const isSnoozed  = Date.now() < snoozedUntil;
-  const activeSurge = (isSnoozed || activeBooking) ? null : (surgeAlerts.find(a =>
-    a.bloodType === userType || a.geoTier === "island-wide"
-  ) ?? null);
+  const surgeMatchesUser = (a) => {
+    const types = a.bloodTypes ?? (a.bloodType ? [a.bloodType] : []);
+    return a.geoTier === "island-wide" || types.includes(userType);
+  };
+  const activeSurge = (isSnoozed || activeBooking) ? null : (surgeAlerts.find(surgeMatchesUser) ?? null);
+
+  // Surge blood types: full label for flowing text, compact value for the badge
+  const surgeTypes = activeSurge ? (activeSurge.bloodTypes ?? (activeSurge.bloodType ? [activeSurge.bloodType] : [])) : [];
+  const surgeLabel = surgeTypes.join(", ") || (activeSurge?.bloodType ?? "");
+  const surgeBadge = surgeTypes.length > 1 ? "MULTI" : (surgeTypes[0] ?? activeSurge?.bloodType ?? "");
 
   // Shared across screens
   const hour      = new Date().getHours();
@@ -685,7 +695,7 @@ export default function HomePanel() {
         >
           ← Back
         </button>
-        <Tag color={BL.surge}>SURGE · {activeSurge?.bloodType ?? "ACTIVE"}</Tag>
+        <Tag color={BL.surge}>SURGE · {surgeLabel || "ACTIVE"}</Tag>
         <div style={{ fontFamily: BL.sans, fontSize: 22, fontWeight: 600, color: BL.ink, letterSpacing: -0.4, lineHeight: 1.2, marginTop: 4, marginBottom: 6 }}>
           Mobilise your workplace
         </div>
@@ -720,7 +730,7 @@ export default function HomePanel() {
           <Tag>Step 2 · Message preview</Tag>
           <div style={{ marginTop: 10, padding: 12, background: BL.fill, borderRadius: 6, fontFamily: BL.sans, fontSize: 13, color: BL.ink, lineHeight: 1.55 }}>
             <b>{donor?.name ?? "A colleague"}</b> is organising a blood donation drive.
-            {activeSurge ? ` ${activeSurge.bloodType} is currently at critical supply nationally.` : ""}
+            {activeSurge ? ` ${surgeLabel} is currently at critical supply nationally.` : ""}
             {" "}It takes about 15 minutes — tap to RSVP.
           </div>
         </Card>
@@ -752,10 +762,10 @@ export default function HomePanel() {
             HSA NATIONAL ALERT · {alertDate} · {alertTime}
           </div>
           <div style={{ fontFamily: BL.sans, fontSize: 30, fontWeight: 600, color: BL.ink, lineHeight: 1.05, letterSpacing: -0.8, marginTop: 8 }}>
-            {activeSurge.bloodType} is needed today.
+            {surgeLabel} is needed today.
           </div>
           <div style={{ fontFamily: BL.sans, fontSize: 15, color: BL.muted, lineHeight: 1.5, marginTop: 10 }}>
-            {activeSurge.message || `HSA is calling all eligible ${activeSurge.bloodType} donors. Reserves are critically low — every unit counts.`}
+            {activeSurge.message || `HSA is calling all eligible ${surgeLabel} donors. Reserves are critically low — every unit counts.`}
           </div>
 
           <div style={{ marginTop: 18, padding: 16, background: BL.surgeBg, border: `1px solid ${BL.surge}55`, borderRadius: 8 }}>
@@ -777,9 +787,9 @@ export default function HomePanel() {
                     width: 52, height: 52, borderRadius: 6, flexShrink: 0,
                     background: BL.need.critical.bg, border: `2px solid ${BL.need.critical.fg}`,
                     display: "flex", alignItems: "center", justifyContent: "center",
-                    fontFamily: BL.mono, fontSize: 13, fontWeight: 700, color: BL.need.critical.fg,
+                    fontFamily: BL.mono, fontSize: surgeBadge.length > 3 ? 11 : 13, fontWeight: 700, color: BL.need.critical.fg,
                   }}>
-                    {activeSurge.bloodType}
+                    {surgeBadge}
                   </div>
                 </div>
                 {donor?.eligible !== false ? (
