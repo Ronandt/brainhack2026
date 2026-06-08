@@ -590,22 +590,28 @@ export default function DonorDrivesPanel() {
   const [userCoords,   setUserCoords]   = useState(null);
   const [locError,     setLocError]     = useState("");
   const [bookingState, setBookingState] = useState({});
-  const [bookedId,     setBookedId]     = useState(null);
-  const [bookedType,   setBookedType]   = useState(null); // "slot" | "drive" — needed to cancel server-side
+  const [booked,       setBooked]       = useState({}); // { [id]: "slot" | "drive" } — ALL of the donor's active bookings
   const [squadItem,    setSquadItem]    = useState(null);
 
   useEffect(() => {
     loadAll();
+    refreshBookings();
+  }, []);
+
+  // Track every booking the donor has, not just the first — otherwise already-booked
+  // slots show "Book" and the server rejects with 409 "you already have a booking".
+  function refreshBookings() {
     getMyBookings()
       .then(d => {
-        const b = d.bookings?.[0];
-        if (b) {
-          setBookedId(b.driveId ?? b.slotId ?? null);
-          setBookedType(b.slotId ? "slot" : "drive");
-        }
+        const map = {};
+        (d.bookings ?? []).forEach(b => {
+          const id = b.slotId ?? b.driveId;
+          if (id) map[id] = b.slotId ? "slot" : "drive";
+        });
+        setBooked(map);
       })
       .catch(() => {});
-  }, []);
+  }
 
   async function loadAll() {
     setLoading(true); setError("");
@@ -655,7 +661,7 @@ export default function DonorDrivesPanel() {
     slot: items.filter(item => item._type === "slot").length,
   }), [items]);
 
-  const isBooked = !!bookedId;
+  const isBooked = Object.keys(booked).length > 0;
 
   async function book(item) {
     const id = item._id;
@@ -667,32 +673,36 @@ export default function DonorDrivesPanel() {
         await createBooking({ driveId: item._id, slotTime: new Date().toISOString() });
       }
       setBookingState(prev => ({ ...prev, [id]: { done: true } }));
-      setBookedId(id);
-      setBookedType(item._type);
+      setBooked(prev => ({ ...prev, [id]: item._type }));
     } catch (e) {
-      setBookingState(prev => ({ ...prev, [id]: { error: e.message } }));
+      // Server says it's already booked → reflect that so the user can cancel it
+      if (e.message?.includes("already have a booking")) {
+        setBooked(prev => ({ ...prev, [id]: item._type }));
+        setBookingState(prev => { const n = { ...prev }; delete n[id]; return n; });
+      } else {
+        setBookingState(prev => ({ ...prev, [id]: { error: e.message } }));
+      }
     }
   }
 
-  async function cancelBooking() {
+  async function cancelBooking(id, type) {
     // Slot bookings persist server-side — must be deleted there, or re-booking
     // hits "you already have a booking for this slot". Drive bookings are local-only.
-    if (bookedType === "slot" && bookedId) {
+    if (type === "slot" && id) {
       try {
-        await cancelSlotBooking(bookedId);
+        await cancelSlotBooking(id);
       } catch (e) {
         const gone = e.message?.includes("not found") || e.message?.includes("404");
         if (!gone) {
           // Real failure — keep the booking so the UI doesn't lie about state
-          setBookingState({ [bookedId]: { error: e.message } });
+          setBookingState(prev => ({ ...prev, [id]: { error: e.message } }));
           return;
         }
         // 404 → already cancelled server-side; fall through and clear local state
       }
     }
-    setBookedId(null);
-    setBookedType(null);
-    setBookingState({});
+    setBooked(prev => { const next = { ...prev }; delete next[id]; return next; });
+    setBookingState(prev => { const next = { ...prev }; delete next[id]; return next; });
     loadAll(); // re-sync slot capacity counts
   }
 
@@ -784,7 +794,7 @@ export default function DonorDrivesPanel() {
         {displayItems.map(item => {
           const pct          = item.capacity > 0 ? (item.booked / item.capacity) * 100 : 0;
           const almostFull   = pct > 80;
-          const isThisBooked = bookedId === item._id;
+          const isThisBooked = !!booked[item._id];
           const isOtherBooked = isBooked && !isThisBooked;
           const bs           = bookingState[item._id] ?? {};
           const badge        = TYPE_BADGE[item._type] ?? TYPE_BADGE.drive;
@@ -840,7 +850,7 @@ export default function DonorDrivesPanel() {
               {isThisBooked ? (
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                   <span style={{ fontFamily: BL.sans, fontSize: 13, color: BL.need.ok.fg, fontWeight: 600 }}>✓ You're booked — see you there!</span>
-                  <button onClick={cancelBooking} style={{ background: "none", border: `1px solid ${BL.hair}`, borderRadius: 5, color: BL.muted, fontFamily: BL.sans, fontSize: 12, padding: "5px 12px", cursor: "pointer" }}>Cancel</button>
+                  <button onClick={() => cancelBooking(item._id, item._type)} style={{ background: "none", border: `1px solid ${BL.hair}`, borderRadius: 5, color: BL.muted, fontFamily: BL.sans, fontSize: 12, padding: "5px 12px", cursor: "pointer" }}>Cancel</button>
                 </div>
               ) : isOtherBooked ? (
                 <div style={{ fontFamily: BL.sans, fontSize: 12, color: BL.faint }}>Cancel your current booking to {item._type === "slot" ? "book" : "RSVP"} here</div>
