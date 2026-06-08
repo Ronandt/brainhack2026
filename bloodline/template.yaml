@@ -650,11 +650,17 @@ Resources:
       Environment:
         Variables:
           HOSPITALS_TABLE: !Ref HospitalsTable
+          SLOT_BOOKINGS_TABLE: !Ref SlotBookingsTable
+          DONORS_TABLE: !Ref DonorsTable
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref HospitalsTable
         - DynamoDBCrudPolicy:
             TableName: !Ref DonationSlotsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref SlotBookingsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref DonorsTable
       Events:
         CreateSlot:
           Type: Api

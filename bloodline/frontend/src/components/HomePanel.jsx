@@ -93,6 +93,7 @@ export default function HomePanel() {
   const [bookingError,      setBookingError]      = useState(null);
   const [checkedItems,      setCheckedItems]      = useState({});
   const [userId,            setUserId]            = useState(null);
+  const [donationBaseline, setDonationBaseline]  = useState(null);
 
   // Decode Cognito sub from JWT so QR code always has the real ID
   useEffect(() => {
@@ -104,6 +105,23 @@ export default function HomePanel() {
       } catch {}
     });
   }, []);
+
+  // Poll for donation completion while QR screen is open
+  useEffect(() => {
+    if (screen !== "arrived") return;
+    const baseline = donor?.lastDonatedAt ?? null;
+    setDonationBaseline(baseline);
+    const id = setInterval(async () => {
+      try {
+        const updated = await getDonor();
+        if (updated.lastDonatedAt !== baseline) {
+          setDonor(updated);
+          setScreen("donated");
+        }
+      } catch {}
+    }, 8000);
+    return () => clearInterval(id);
+  }, [screen]);
 
   // Surge snooze — localStorage is fine for a UI preference
   const [snoozedUntil, setSnoozedUntil] = useState(
@@ -439,6 +457,67 @@ export default function HomePanel() {
           }}
         >
           Done
+        </button>
+      </div>
+    );
+  }
+
+  // ── Donation complete screen ─────────────────────────────────────
+  if (screen === "donated") {
+    const isUniversal = userType === "O-" || userType === "O−";
+    return (
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", padding: "48px 0 24px" }}>
+        <div style={{
+          width: 88, height: 88, borderRadius: 44,
+          background: BL.need.ok.bg, border: `2px solid ${BL.need.ok.fg}`,
+          display: "flex", alignItems: "center", justifyContent: "center",
+          fontFamily: BL.sans, fontSize: 42, color: BL.need.ok.fg,
+        }}>✓</div>
+
+        <div style={{ fontFamily: BL.sans, fontSize: 26, fontWeight: 600, color: BL.ink, marginTop: 22, letterSpacing: -0.6, textAlign: "center", lineHeight: 1.15 }}>
+          Donation recorded.
+        </div>
+        <div style={{ fontFamily: BL.sans, fontSize: 14, color: BL.muted, marginTop: 8, textAlign: "center", lineHeight: 1.6, maxWidth: 280 }}>
+          Thank you — your session has been confirmed by the bloodbank staff.
+        </div>
+
+        <Card style={{ marginTop: 24, width: "100%" }}>
+          <Tag>Your impact</Tag>
+          <div style={{ fontFamily: BL.sans, fontSize: 14, color: BL.ink, fontWeight: 500, marginTop: 8, lineHeight: 1.6 }}>
+            Your unit could help <b style={{ color: BL.red }}>up to 3 patients</b>.
+            {isUniversal
+              ? " As O−, you're a universal donor — your blood can go to anyone in an emergency."
+              : " Every donation keeps Singapore's national reserves healthy."}
+          </div>
+        </Card>
+
+        {donor?.lastDonatedAt && (
+          <Card style={{ width: "100%", background: BL.fill }}>
+            <Tag>Recorded</Tag>
+            <div style={{ fontFamily: BL.mono, fontSize: 13, color: BL.ink, marginTop: 6 }}>
+              {new Date(donor.lastDonatedAt).toLocaleString("en-SG", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}
+            </div>
+            {donor.daysUntilEligible > 0 && (
+              <div style={{ fontFamily: BL.sans, fontSize: 12, color: BL.muted, marginTop: 4 }}>
+                Next eligible in {donor.daysUntilEligible} days
+              </div>
+            )}
+          </Card>
+        )}
+
+        <button
+          onClick={() => {
+            setScreen(null);
+            setActiveBooking(null);
+            fetchBookings();
+          }}
+          style={{
+            width: "100%", padding: "15px 0", marginTop: 8,
+            background: BL.ink, color: "#fff", border: "none", borderRadius: 8,
+            fontFamily: BL.sans, fontSize: 15, fontWeight: 600, cursor: "pointer", minHeight: 52,
+          }}
+        >
+          OK
         </button>
       </div>
     );

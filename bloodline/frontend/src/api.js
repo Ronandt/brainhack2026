@@ -50,6 +50,7 @@ export const updateHospitalProfile = (body) =>
 export const createSlot = (body) =>
   request("/api/v1/hospital/slots", { method: "POST", body: JSON.stringify(body) });
 export const getHospitalSlots = () => request("/api/v1/hospital/slots");
+export const getSlotBookings = (slotId) => request(`/api/v1/hospital/slots?slotId=${encodeURIComponent(slotId)}`);
 export const getSlots = (bloodType) =>
   request("/api/v1/slots" + (bloodType ? `?bloodType=${bloodType}` : ""));
 export const bookSlot = (slotId) =>

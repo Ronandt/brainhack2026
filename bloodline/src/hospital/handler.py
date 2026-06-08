@@ -13,8 +13,10 @@ from aws_lambda_powertools.utilities.typing import LambdaContext
 logger = Logger()
 _cfg = Config(connect_timeout=5, read_timeout=5, retries={"max_attempts": 2})
 dynamodb = boto3.resource("dynamodb", config=_cfg)
-hospitals_table = dynamodb.Table(os.environ["HOSPITALS_TABLE"])
-slots_table = dynamodb.Table(os.environ["DONATION_SLOTS_TABLE"])
+hospitals_table    = dynamodb.Table(os.environ["HOSPITALS_TABLE"])
+slots_table        = dynamodb.Table(os.environ["DONATION_SLOTS_TABLE"])
+slot_bookings_table = dynamodb.Table(os.environ.get("SLOT_BOOKINGS_TABLE", "bloodline-slot-bookings-dev"))
+donors_table       = dynamodb.Table(os.environ.get("DONORS_TABLE", "bloodline-donors-dev"))
 
 BLOOD_TYPES = ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"]
 
@@ -41,6 +43,9 @@ def lambda_handler(event: dict, context: LambdaContext) -> dict:
     if "/slots" in path and method == "POST":
         return _create_slot(event)
     if "/slots" in path and method == "GET":
+        params = event.get("queryStringParameters") or {}
+        if params.get("slotId"):
+            return _get_slot_bookings(event)
         return _list_hospital_slots(event)
     if "/profile" in path and method == "GET":
         return _get_profile(event)
@@ -106,13 +111,22 @@ def _update_profile(event: dict) -> dict:
 
 def _create_slot(event: dict) -> dict:
     hid = _hospital_id(event)
-
-    profile_result = hospitals_table.get_item(Key={"hospitalId": hid})
-    profile = profile_result.get("Item")
-    if not profile or not profile.get("location"):
-        return _response(400, {"error": "Hospital location not set — complete your profile first."})
-
     body = json.loads(event.get("body") or "{}")
+
+    # Accept location from body (BloodBank flow) or fall back to hospital profile
+    location = (body.get("location") or "").strip()
+    lat, lng = None, None
+
+    if not location:
+        profile_result = hospitals_table.get_item(Key={"hospitalId": hid})
+        profile = profile_result.get("Item")
+        if not profile or not profile.get("location"):
+            return _response(400, {"error": "Hospital location not set — complete your profile first."})
+        location = profile["location"]
+        if profile.get("lat") is not None:
+            lat = profile["lat"]
+            lng = profile["lng"]
+
     date = (body.get("date") or "").strip()
     capacity = body.get("capacity")
     if not date or not capacity:
@@ -124,7 +138,7 @@ def _create_slot(event: dict) -> dict:
     item = {
         "slotId": slot_id,
         "hospitalId": hid,
-        "location": profile["location"],
+        "location": location,
         "date": date,
         "startTime": body.get("startTime", ""),
         "endTime": body.get("endTime", ""),
@@ -135,9 +149,9 @@ def _create_slot(event: dict) -> dict:
         "status": "available",
         "createdAt": now,
     }
-    if profile.get("lat") is not None:
-        item["lat"] = profile["lat"]
-        item["lng"] = profile["lng"]
+    if lat is not None and lng is not None:
+        item["lat"] = lat
+        item["lng"] = lng
 
     slots_table.put_item(Item=item)
     logger.info("Donation slot created", slot_id=slot_id, hospital_id=hid)
@@ -156,3 +170,27 @@ def _list_hospital_slots(event: dict) -> dict:
             if key in slot and slot[key] is not None:
                 slot[key] = float(slot[key])
     return _response(200, {"slots": slots})
+
+
+def _get_slot_bookings(event: dict) -> dict:
+    params = event.get("queryStringParameters") or {}
+    slot_id = params.get("slotId")
+    if not slot_id:
+        return _response(400, {"error": "slotId is required"})
+
+    result = slot_bookings_table.scan(FilterExpression=Attr("slotId").eq(slot_id))
+    bookings = []
+    for item in result.get("Items", []):
+        if item.get("status") != "confirmed":
+            continue
+        donor = donors_table.get_item(Key={"donorId": item["donorId"]}).get("Item", {})
+        bookings.append({
+            "donorId": item["donorId"],
+            "bookingId": item.get("bookingId", ""),
+            "bookedAt": item.get("createdAt", ""),
+            "name": donor.get("name", "—"),
+            "bloodType": donor.get("bloodType", "—"),
+            "postalCode": donor.get("postalCode", ""),
+        })
+
+    return _response(200, {"bookings": bookings, "count": len(bookings)})
