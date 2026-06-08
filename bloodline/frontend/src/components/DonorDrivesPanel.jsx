@@ -406,7 +406,7 @@ export default function DonorDrivesPanel() {
                     </div>
                   )}
                   <div style={{ fontFamily: BL.mono, fontSize: 10, color: BL.muted, letterSpacing: 0.4 }}>
-                    {item.date}{item.startTime ? ` · ${item.startTime}` : ""}
+                    {item.date}{item.startTime ? ` · ${item.startTime}${item.endTime ? `–${item.endTime}` : ""}` : ""}
                   </div>
                 </div>
                 <div style={{ display: "flex", gap: 6, alignItems: "center", marginLeft: 10, flexShrink: 0 }}>
