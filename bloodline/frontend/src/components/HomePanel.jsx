@@ -312,7 +312,7 @@ export default function HomePanel() {
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontFamily: BL.sans, fontSize: 14, color: BL.ink, fontWeight: 600 }}>
-                      {slot.name ?? slot.location}
+                      {slot.name || slot.location}
                     </div>
                     {slot.name && slot.location && (
                       <div style={{ fontFamily: BL.sans, fontSize: 12, color: BL.muted, marginTop: 1 }}>
@@ -623,7 +623,7 @@ export default function HomePanel() {
             Your booking
           </div>
           {[
-            { l: "Drive",    v: drive.name ?? drive.location ?? "—" },
+            { l: "Drive",    v: drive.name || drive.location || "—" },
             { l: "When",     v: drive.date ? `${drive.date}${timeRange ? ` · ${timeRange}` : ""}` : "—" },
             { l: "Location", v: drive.location ?? "—" },
           ].map(({ l, v }, i) => (
@@ -683,7 +683,7 @@ export default function HomePanel() {
             <div style={{ fontFamily: BL.sans, fontSize: 15, fontWeight: 600, color: BL.ink }}>You're booked</div>
           </div>
           <div style={{ fontFamily: BL.sans, fontSize: 16, fontWeight: 600, color: BL.ink, marginBottom: 4 }}>
-            {drive.name ?? drive.location ?? "Blood drive"}
+            {drive.name || drive.location || "Blood drive"}
           </div>
           <div style={{ fontFamily: BL.mono, fontSize: 11, color: BL.muted, letterSpacing: 0.3 }}>
             {drive.date}{timeRange ? ` · ${timeRange}` : ""}
@@ -852,7 +852,7 @@ export default function HomePanel() {
               <>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                   <div style={{ flex: 1, minWidth: 0, marginRight: 12 }}>
-                    <div style={{ fontFamily: BL.sans, fontSize: 15, color: BL.ink, fontWeight: 600 }}>{nearestSlot.name ?? nearestSlot.location}</div>
+                    <div style={{ fontFamily: BL.sans, fontSize: 15, color: BL.ink, fontWeight: 600 }}>{nearestSlot.name || nearestSlot.location}</div>
                     {nearestSlot.name && nearestSlot.location && (
                       <div style={{ fontFamily: BL.sans, fontSize: 12, color: BL.muted, marginTop: 2 }}>{nearestSlot.location}</div>
                     )}
@@ -1028,7 +1028,7 @@ export default function HomePanel() {
           ) : nearestSlot ? (
             <div style={{ marginTop: 8, background: BL.card, border: `1px solid ${BL.hair}`, borderRadius: 6, padding: 14 }}>
               <div style={{ fontFamily: BL.sans, fontSize: 14, color: BL.ink, fontWeight: 600 }}>
-                {nearestSlot.name ?? nearestSlot.location}
+                {nearestSlot.name || nearestSlot.location}
               </div>
               {nearestSlot.name && nearestSlot.location && (
                 <div style={{ fontFamily: BL.sans, fontSize: 12, color: BL.muted, marginTop: 1 }}>

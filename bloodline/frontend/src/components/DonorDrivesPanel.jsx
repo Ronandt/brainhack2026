@@ -210,7 +210,7 @@ function MapcnLocationMap({ location, onSelect }) {
 
 function SquadRsvpModal({ item, onClose }) {
   const [copied, setCopied] = useState(false);
-  const msg = `Hey squad! Let's donate blood together 🩸\n\n${item.name ?? item.location}\n${item.date}${item.startTime ? ` · ${item.startTime}` : ""}\n${item.location}\n\nRSVP here: <link>`;
+  const msg = `Hey squad! Let's donate blood together 🩸\n\n${item.name || item.location}\n${item.date}${item.startTime ? ` · ${item.startTime}` : ""}\n${item.location}\n\nRSVP here: <link>`;
 
   function share() {
     if (navigator.share) {
@@ -778,7 +778,7 @@ export default function DonorDrivesPanel() {
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontFamily: BL.sans, fontSize: 14, fontWeight: 600, color: BL.ink, marginBottom: 2 }}>
-                    {item.name ?? item.location}
+                    {item.name || item.location}
                   </div>
                   {item.name && item.location && (
                     <div style={{ fontFamily: BL.sans, fontSize: 12, color: BL.muted, marginBottom: 2 }}>
@@ -818,7 +818,7 @@ export default function DonorDrivesPanel() {
                   <button onClick={cancelBooking} style={{ background: "none", border: `1px solid ${BL.hair}`, borderRadius: 5, color: BL.muted, fontFamily: BL.sans, fontSize: 12, padding: "5px 12px", cursor: "pointer" }}>Cancel</button>
                 </div>
               ) : isOtherBooked ? (
-                <div style={{ fontFamily: BL.sans, fontSize: 12, color: BL.faint }}>Cancel your current booking to RSVP here</div>
+                <div style={{ fontFamily: BL.sans, fontSize: 12, color: BL.faint }}>Cancel your current booking to {item._type === "slot" ? "book" : "RSVP"} here</div>
               ) : (
                 <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                   <button
@@ -826,14 +826,16 @@ export default function DonorDrivesPanel() {
                     disabled={bs.loading}
                     style={{ padding: "9px 20px", background: BL.ink, color: "#fff", border: "none", borderRadius: 6, fontFamily: BL.sans, fontSize: 13, fontWeight: 600, cursor: bs.loading ? "default" : "pointer", opacity: bs.loading ? 0.5 : 1, minHeight: 38 }}
                   >
-                    {bs.loading ? "Booking…" : "RSVP"}
+                    {bs.loading ? "Booking…" : item._type === "slot" ? "Book" : "RSVP"}
                   </button>
-                  <button
-                    onClick={() => setSquadItem(item)}
-                    style={{ padding: "9px 16px", background: "none", border: `1px solid ${BL.hair}`, borderRadius: 6, fontFamily: BL.sans, fontSize: 13, color: BL.ink, cursor: "pointer", minHeight: 38 }}
-                  >
-                    Squad RSVP
-                  </button>
+                  {item._type !== "slot" && (
+                    <button
+                      onClick={() => setSquadItem(item)}
+                      style={{ padding: "9px 16px", background: "none", border: `1px solid ${BL.hair}`, borderRadius: 6, fontFamily: BL.sans, fontSize: 13, color: BL.ink, cursor: "pointer", minHeight: 38 }}
+                    >
+                      Squad RSVP
+                    </button>
+                  )}
                   {bs.error && <span style={{ fontFamily: BL.sans, fontSize: 12, color: BL.need.critical.fg }}>{bs.error}</span>}
                 </div>
               )}
