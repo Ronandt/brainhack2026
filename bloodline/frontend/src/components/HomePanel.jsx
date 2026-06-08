@@ -3,7 +3,7 @@ import QRCode from "react-qr-code";
 import {
   getDonor, getStatus, getDrives,
   getSlots, bookSlot, cancelSlotBooking, getBloodStock,
-  getSurgeMonitor, getMyBookings,
+  getSurgeMonitor, getMyBookings, updateDonor,
 } from "../api";
 import { getToken } from "../auth";
 import { BL, riskToNeed } from "../tokens";
@@ -187,6 +187,16 @@ export default function HomePanel() {
     // Ask once for permission to send browser push notifications for surges
     if (typeof Notification !== "undefined" && Notification.permission === "default") {
       Notification.requestPermission().catch(() => {});
+    }
+
+    // Capture a live location fix (if the donor allows it) so surge radius tiers
+    // can target where they actually are; falls back to home postal code server-side.
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        pos => updateDonor({ liveLat: pos.coords.latitude, liveLng: pos.coords.longitude }).catch(() => {}),
+        () => {},  // denied / unavailable → home location is used instead
+        { enableHighAccuracy: false, timeout: 8000, maximumAge: 300000 }
+      );
     }
 
     fetchBookings();

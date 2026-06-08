@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { activateSurge, endSurge, getAllAlerts, getDonorSegments } from "../../api";
+import { activateSurge, endSurge, getAllAlerts, getSurgeReach } from "../../api";
 import { BL } from "../../tokens";
 
 const BLOOD_TYPES = ["O-", "O+", "A-", "A+", "B-", "B+", "AB-", "AB+"];
@@ -49,9 +49,9 @@ export default function SurgePanel() {
   const [error,      setError]      = useState("");
   const [alerts,     setAlerts]     = useState([]);
   const [endingId,   setEndingId]   = useState(null);
-  // Real donor pool: total count + count per blood type (from getDonorSegments)
-  const [donorTotal, setDonorTotal] = useState(null);
-  const [donorByType, setDonorByType] = useState({});
+  // Real projected reach from the backend (same blood-type + radius matching the
+  // notify Lambda uses). null until the first /surge/reach call returns.
+  const [reachCount, setReachCount] = useState(null);
 
   function loadAlerts() {
     getAllAlerts().then(d => setAlerts(d.alerts ?? [])).catch(() => {});
@@ -59,21 +59,23 @@ export default function SurgePanel() {
 
   useEffect(() => { loadAlerts(); }, [result]);
 
+  // Poll so freshly-activated alerts pick up their notify counts (notify runs
+  // a second or two after activation, via SNS).
   useEffect(() => {
-    getDonorSegments()
-      .then(d => {
-        const counts = {};
-        Object.values(d.segments ?? {}).forEach(arr =>
-          (arr ?? []).forEach(donor => {
-            const bt = donor.bloodType;
-            if (bt && bt !== "—") counts[bt] = (counts[bt] ?? 0) + 1;
-          })
-        );
-        setDonorByType(counts);
-        setDonorTotal(d.total ?? Object.values(counts).reduce((s, n) => s + n, 0));
-      })
-      .catch(() => {});
+    const id = setInterval(loadAlerts, 10_000);
+    return () => clearInterval(id);
   }, []);
+
+  // Live projected reach — recompute (debounced) whenever tier or blood types change.
+  useEffect(() => {
+    setReachCount(null);
+    const id = setTimeout(() => {
+      getSurgeReach(geoTier, bloodTypes)
+        .then(d => setReachCount(d.notified ?? 0))
+        .catch(() => setReachCount(null));
+    }, 400);
+    return () => clearTimeout(id);
+  }, [geoTier, bloodTypes]);
 
   function toggleBloodType(bt) {
     setBloodTypes(prev =>
@@ -106,16 +108,15 @@ export default function SurgePanel() {
     }
   }
 
-  // Projected reach from the real donor pool. Island-wide notifies everyone;
-  // narrower tiers are scoped to the selected blood types.
-  const knownPool = donorTotal !== null;
-  const notified = geoTier === "island-wide"
-    ? (donorTotal ?? 0)
-    : bloodTypes.reduce((sum, bt) => sum + (donorByType[bt] ?? 0), 0);
+  // Projected reach comes from the backend (blood-type + geo-radius matched).
+  const knownPool = reachCount !== null;
+  const notified = reachCount ?? 0;
   const responses = Math.round(notified * (TIER_RATE[geoTier] ?? 0.1));
   const reach = { notified, responses };
   const bloodLabel = bloodTypes.length ? bloodTypes.join(", ") : "—";
-  const activeAlerts = alerts.filter(a => a.status === "active");
+  const activeAlerts = alerts
+    .filter(a => a.status === "active")
+    .sort((a, b) => (b.activatedAt ?? "").localeCompare(a.activatedAt ?? ""));
 
   const labelStyle = { display: "block", fontFamily: BL.sans, fontSize: 12, color: BL.muted, marginBottom: 6, marginTop: 16 };
   const inputStyle = {
@@ -180,12 +181,10 @@ export default function SurgePanel() {
             <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 6 }}>
               {GEO_TIERS.map(tier => {
                 const sel = geoTier === tier.id;
-                const tierNotified = tier.id === "island-wide"
-                  ? (donorTotal ?? 0)
-                  : bloodTypes.reduce((sum, bt) => sum + (donorByType[bt] ?? 0), 0);
-                const tierEst = knownPool
-                  ? `${tierNotified.toLocaleString()} donors · est ${Math.round(tier.rate * 100)}% response`
-                  : `loading donor pool · est ${Math.round(tier.rate * 100)}% response`;
+                // Live donor count is only fetched for the selected tier; others show the rate.
+                const tierEst = sel && knownPool
+                  ? `${notified.toLocaleString()} donors · est ${Math.round(tier.rate * 100)}% response`
+                  : `est ${Math.round(tier.rate * 100)}% response`;
                 return (
                   <button
                     key={tier.id}
@@ -336,10 +335,10 @@ export default function SurgePanel() {
           </form>
 
           {/* Live monitor */}
-          {alerts.length > 0 && (
+          {activeAlerts.length > 0 && (
             <W pad={16} style={{ marginTop: 14 }}>
               <div style={{ fontFamily: BL.sans, fontSize: 13, fontWeight: 600, color: BL.ink, marginBottom: 10 }}>Live alert monitor</div>
-              {alerts.slice(0, 3).map(a => (
+              {activeAlerts.slice(0, 3).map(a => (
                 <div key={a.alertId} style={{ background: BL.fill, borderRadius: 6, padding: "10px 12px", marginBottom: 8 }}>
                   <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 6 }}>
                     <span style={{ fontFamily: BL.mono, fontWeight: 600, color: BL.red, fontSize: 14 }}>{a.bloodType}</span>

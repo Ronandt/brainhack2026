@@ -18,6 +18,7 @@ Globals:
         ALERTS_TABLE: !Ref AlertsTable
         DONATION_SLOTS_TABLE: !Ref DonationSlotsTable
         SLOT_BOOKINGS_TABLE: !Ref SlotBookingsTable
+        HOSPITALS_TABLE: !Ref HospitalsTable
         PREDICTIONS_BUCKET: !Ref PredictionsCacheBucket
         SURGE_ALERT_TOPIC: !Ref SurgeAlertTopic
         POWERTOOLS_SERVICE_NAME: bloodline
@@ -428,6 +429,8 @@ Resources:
             TableName: !Ref AlertsTable
         - DynamoDBReadPolicy:
             TableName: !Ref DonorsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref HospitalsTable
         - SNSPublishMessagePolicy:
             TopicName: !GetAtt SurgeAlertTopic.TopicName
       Events:
@@ -442,6 +445,12 @@ Resources:
           Properties:
             RestApiId: !Ref BloodlineApi
             Path: /api/v1/surge/monitor
+            Method: GET
+        ReachPreview:
+          Type: Api
+          Properties:
+            RestApiId: !Ref BloodlineApi
+            Path: /api/v1/surge/reach
             Method: GET
         EndSurge:
           Type: Api
@@ -463,6 +472,8 @@ Resources:
       Policies:
         - DynamoDBReadPolicy:
             TableName: !Ref DonorsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref HospitalsTable
         - DynamoDBCrudPolicy:
             TableName: !Ref AlertsTable
         - Statement:
@@ -683,6 +694,7 @@ Resources:
       Environment:
         Variables:
           HOSPITALS_TABLE: !Ref HospitalsTable
+          DONATION_SLOTS_TABLE: !Ref DonationSlotsTable
           SLOT_BOOKINGS_TABLE: !Ref SlotBookingsTable
           DONORS_TABLE: !Ref DonorsTable
       Policies:
