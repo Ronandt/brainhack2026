@@ -13,7 +13,9 @@ import MySlotsPanel from "./hospital/MySlotsPanel";
 import CreateSlotPanel from "./hospital/CreateSlotPanel";
 import CheckinPanel from "./hospital/CheckinPanel";
 import SetupLocationPanel from "./hospital/SetupLocationPanel";
-import { getHospitalProfile } from "../api";
+import AdminProfilePanel from "./admin/AdminProfilePanel";
+import { getHospitalProfile, getDonor } from "../api";
+import { getToken } from "../auth";
 
 function decodePayload(token) {
   if (!token) return {};
@@ -43,7 +45,7 @@ function isHospital(token) {
 
 const DONOR_TABS = [
   { id: "home",    label: "Home" },
-  { id: "drives",  label: "Drives" },
+  { id: "drives",  label: "Book" },
   { id: "impact",  label: "Impact" },
   { id: "profile", label: "You" },
 ];
@@ -71,7 +73,8 @@ function PanelContent({ tab, onLogout, hospitalName }) {
   if (tab === "asurge")   return <AdminSurgePanel />;
   if (tab === "adrives")  return <DrivesPanel />;
   if (tab === "donors")   return <DonorsPanel />;
-  if (tab === "demand")   return <DemandPanel />;
+  if (tab === "demand")    return <DemandPanel />;
+  if (tab === "aprofile")  return <AdminProfilePanel />;
   if (tab === "hslots")    return <MySlotsPanel />;
   if (tab === "hcreate")   return <CreateSlotPanel hospitalName={hospitalName} />;
   if (tab === "hcheckin")  return <CheckinPanel />;
@@ -80,7 +83,18 @@ function PanelContent({ tab, onLogout, hospitalName }) {
 
 // ── Admin layout: dark left sidebar + light content (mirrors ConsoleShell) ──
 function AdminDashboard({ tab, setTab, onLogout }) {
-  const activeLabel = ADMIN_TABS.find(t => t.id === tab)?.label ?? "";
+  const activeLabel = ADMIN_TABS.find(t => t.id === tab)?.label ?? (tab === "aprofile" ? "My Profile" : "");
+  const [adminName, setAdminName] = useState("");
+  const [profileHovered, setProfileHovered] = useState(false);
+
+  useEffect(() => {
+    getDonor().then(d => setAdminName(d.name ?? "")).catch(() => {});
+  }, []);
+
+  const initials = adminName
+    ? adminName.trim().split(" ").map(w => w[0]).slice(0, 2).join("").toUpperCase()
+    : "?";
+  const displayName = adminName ? `${adminName} · HSA` : "HSA Admin";
 
   return (
     <div style={{ display: "flex", minHeight: "100vh", fontFamily: BL.sans }}>
@@ -158,8 +172,32 @@ function AdminDashboard({ tab, setTab, onLogout }) {
               {new Date().toLocaleString("en-SG", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
             </span>
             <div style={{ width: 1, height: 16, background: BL.hair }} />
-            <span style={{ fontFamily: BL.sans, fontSize: 12, color: BL.ink }}>Dr. R. Lim · HSA</span>
-            <div style={{ width: 28, height: 28, borderRadius: 14, background: BL.fill, border: `1px solid ${BL.hair}` }} />
+            <button
+              onClick={() => setTab("aprofile")}
+              onMouseEnter={() => setProfileHovered(true)}
+              onMouseLeave={() => setProfileHovered(false)}
+              style={{
+                display: "flex", alignItems: "center", gap: 8,
+                background: profileHovered ? BL.fill : "none",
+                border: `1px solid ${profileHovered ? BL.hair : "transparent"}`,
+                borderRadius: 6, padding: "4px 8px 4px 4px",
+                cursor: "pointer", transition: "all 0.12s",
+              }}
+            >
+              <div style={{
+                width: 28, height: 28, borderRadius: 14, flexShrink: 0,
+                background: tab === "aprofile" ? BL.ink : BL.fill,
+                border: `1px solid ${tab === "aprofile" ? BL.ink : BL.hair}`,
+                display: "flex", alignItems: "center", justifyContent: "center",
+                fontFamily: BL.sans, fontSize: 11, fontWeight: 700,
+                color: tab === "aprofile" ? "#fff" : BL.ink,
+              }}>
+                {initials}
+              </div>
+              <span style={{ fontFamily: BL.sans, fontSize: 12, color: BL.ink, whiteSpace: "nowrap" }}>
+                {displayName}
+              </span>
+            </button>
           </div>
         </div>
 
