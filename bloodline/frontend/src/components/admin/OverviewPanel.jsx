@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { getBloodStock, getStatus, getAllAlerts, getForecast } from "../../api";
+import { getBloodStock, getStatus, getAllAlerts, getForecast, getTrafficIncidents } from "../../api";
 import { BL } from "../../tokens";
 
 function statusToNeed(s) {
@@ -37,20 +37,6 @@ const BT_COLORS = {
   "B+": "#059669", "B-": "#064e3b",
   "AB+": "#7c3aed", "AB-": "#4c1d95",
 };
-
-function buildActions(activeAlerts, criticalTypes) {
-  const actions = [];
-  if (criticalTypes.length > 0)
-    actions.push({ tone: "critical", t: `Activate Surge Mode for ${criticalTypes[0]}`, sub: `${criticalTypes[0]} units critically low — activate surge to mobilise donors.` });
-  if (activeAlerts.length === 0)
-    actions.push({ tone: "low", t: "No active surge alerts", sub: "System is in stand-by. Monitor forecast daily." });
-  else
-    activeAlerts.slice(0, 2).forEach(a =>
-      actions.push({ tone: "urgent", t: `${a.bloodType} surge active · ${a.geoTier}`, sub: `${a.donorsNotified ?? 0} notified · ${a.bookings ?? 0} bookings so far.` })
-    );
-  actions.push({ tone: "ok", t: "Review pending drives", sub: "Approve community drives to expand collection capacity." });
-  return actions.slice(0, 3);
-}
 
 // Per-blood-type risk thresholds mirroring predict/handler.py _BT_THRESHOLDS
 // [ok_min, low_min, urgent_min] — below urgent_min is critical
@@ -345,6 +331,8 @@ export default function OverviewPanel() {
   const [alerts, setAlerts]                 = useState([]);
   const [forecast, setForecast]             = useState({});
   const [hovered, setHovered]               = useState(null);
+  const [incidents, setIncidents]           = useState([]);
+  const [incidentsUpdatedAt, setIncidentsUpdatedAt] = useState("");
 
   useEffect(() => {
     getBloodStock().then(d => {
@@ -356,6 +344,19 @@ export default function OverviewPanel() {
     getForecast().then(d => setForecast(d.forecast ?? {})).catch(() => {});
   }, []);
 
+  // Live LTA traffic incidents — poll every 60s so the ops feed stays current.
+  useEffect(() => {
+    function loadIncidents() {
+      getTrafficIncidents().then(d => {
+        setIncidents(d.incidents ?? []);
+        setIncidentsUpdatedAt(d.asOf ?? "");
+      }).catch(() => {});
+    }
+    loadIncidents();
+    const id = setInterval(loadIncidents, 60000);
+    return () => clearInterval(id);
+  }, []);
+
   const stockByType  = Object.fromEntries(bloodStock.map(s => [s.bloodType, s]));
   const activeAlerts = alerts.filter(a => a.status === "active");
   const criticalTypes = BLOOD_TYPE_ORDER.filter(bt => stockByType[bt] && statusToNeed(stockByType[bt].status) === "critical");
@@ -364,7 +365,6 @@ export default function OverviewPanel() {
     return n === "urgent" || n === "critical";
   }).length || null;
 
-  const actions = buildActions(activeAlerts, criticalTypes);
   const hasForecast = Object.keys(forecast).length > 0;
 
   return (
@@ -473,15 +473,34 @@ export default function OverviewPanel() {
 
       {/* ── Right rail ──────────────────────────── */}
       <div style={{ width: 300, borderLeft: `1px solid ${BL.hair}`, background: "#fdfcf8", padding: 20, overflowY: "auto", flexShrink: 0 }}>
-        <Tag>Recommended Actions</Tag>
-        <div style={{ marginTop: 8 }}>
-          {actions.map((a, i) => (
-            <div key={i} style={{ padding: 12, borderRadius: 6, marginBottom: 8, background: BL.need[a.tone].bg, border: `1px solid ${BL.need[a.tone].fg}33` }}>
-              <Tag color={BL.need[a.tone].fg}>{BL.need[a.tone].label}</Tag>
-              <div style={{ fontFamily: BL.sans, fontSize: 13, color: BL.ink, fontWeight: 500, marginTop: 4 }}>{a.t}</div>
-              <div style={{ fontFamily: BL.sans, fontSize: 11, color: BL.muted, marginTop: 4, lineHeight: 1.4 }}>{a.sub}</div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+          <Tag color={incidents.length > 0 ? BL.need.critical.fg : undefined}>
+            Live Accidents · LTA{incidents.length > 0 ? ` · ${incidents.length}` : ""}
+          </Tag>
+          {incidentsUpdatedAt && (
+            <Tag>{incidentsUpdatedAt.slice(11, 16)}</Tag>
+          )}
+        </div>
+        <div style={{ marginTop: 6, maxHeight: 220, overflowY: "auto" }}>
+          {incidents.length === 0 ? (
+            <div style={{ padding: 8, borderRadius: 5, background: BL.need.ok.bg, border: `1px solid ${BL.need.ok.fg}33` }}>
+              <div style={{ fontFamily: BL.sans, fontSize: 11, color: BL.muted, lineHeight: 1.35 }}>
+                No accidents on the road network.
+              </div>
             </div>
-          ))}
+          ) : (
+            incidents.map((inc, i) => {
+              const tone = BL.need[inc.tone] ? inc.tone : "critical";
+              return (
+                <div key={i} style={{ padding: "6px 8px", borderRadius: 5, marginBottom: 5, background: BL.need[tone].bg, border: `1px solid ${BL.need[tone].fg}33` }}>
+                  <div style={{
+                    fontFamily: BL.sans, fontSize: 11, color: BL.ink, lineHeight: 1.35,
+                    display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden",
+                  }}>{inc.message}</div>
+                </div>
+              );
+            })
+          )}
         </div>
 
         <Tag style={{ marginTop: 8, display: "block" }}>Model Confidence</Tag>

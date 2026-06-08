@@ -1,8 +1,8 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import QRCode from "react-qr-code";
 import {
   getDonor, getStatus, getDrives,
-  getSlots, bookSlot, getBloodStock,
+  getSlots, bookSlot, cancelSlotBooking, getBloodStock,
   getSurgeMonitor, getMyBookings,
 } from "../api";
 import { getToken } from "../auth";
@@ -91,6 +91,7 @@ export default function HomePanel() {
   const [selectedSlot,      setSelectedSlot]      = useState(null);
   const [confirming,        setConfirming]        = useState(false);
   const [bookingError,      setBookingError]      = useState(null);
+  const [cancelling,        setCancelling]        = useState(false);
   const [checkedItems,      setCheckedItems]      = useState({});
   const [userId,            setUserId]            = useState(null);
   const [donationBaseline, setDonationBaseline]  = useState(null);
@@ -140,12 +141,33 @@ export default function HomePanel() {
       .catch(() => setActiveBooking(null));
   }
 
+  // Browser push: remember which alerts we've already surfaced this session so
+  // the 30s poll doesn't fire a notification on every tick.
+  const notifiedAlertIds = useRef(new Set());
+
+  function pushBrowserNotification(alert) {
+    if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
+    if (notifiedAlertIds.current.has(alert.alertId)) return;
+    notifiedAlertIds.current.add(alert.alertId);
+    new Notification(`Surge alert — ${alert.bloodType} blood needed`, {
+      body: alert.message || `HSA is calling all eligible ${alert.bloodType} donors. Reserves are critically low.`,
+      tag: alert.alertId,
+    });
+  }
+
   function fetchSurge() {
     getSurgeMonitor()
       .then(d => {
         const alerts = d.activeAlerts ?? [];
         console.log("[Surge] active alerts:", alerts);
         setSurgeAlerts(alerts);
+        // Fire a browser push for any relevant new surge
+        alerts
+          .filter(a => {
+            const types = a.bloodTypes ?? (a.bloodType ? [a.bloodType] : []);
+            return a.geoTier === "island-wide" || types.includes(donor?.bloodType);
+          })
+          .forEach(pushBrowserNotification);
       })
       .catch(err => console.error("[Surge] getSurgeMonitor failed:", err));
   }
@@ -161,6 +183,11 @@ export default function HomePanel() {
         setBloodStockUpdated(d.updatedAt ?? "");
       }),
     ]).finally(() => setLoading(false));
+
+    // Ask once for permission to send browser push notifications for surges
+    if (typeof Notification !== "undefined" && Notification.permission === "default") {
+      Notification.requestPermission().catch(() => {});
+    }
 
     fetchBookings();
     fetchSurge();
@@ -178,9 +205,16 @@ export default function HomePanel() {
 
   // Active surge: hidden if snoozed OR donor already has a confirmed booking
   const isSnoozed  = Date.now() < snoozedUntil;
-  const activeSurge = (isSnoozed || activeBooking) ? null : (surgeAlerts.find(a =>
-    a.bloodType === userType || a.geoTier === "island-wide"
-  ) ?? null);
+  const surgeMatchesUser = (a) => {
+    const types = a.bloodTypes ?? (a.bloodType ? [a.bloodType] : []);
+    return a.geoTier === "island-wide" || types.includes(userType);
+  };
+  const activeSurge = (isSnoozed || activeBooking) ? null : (surgeAlerts.find(surgeMatchesUser) ?? null);
+
+  // Surge blood types: full label for flowing text, compact value for the badge
+  const surgeTypes = activeSurge ? (activeSurge.bloodTypes ?? (activeSurge.bloodType ? [activeSurge.bloodType] : [])) : [];
+  const surgeLabel = surgeTypes.join(", ") || (activeSurge?.bloodType ?? "");
+  const surgeBadge = surgeTypes.length > 1 ? "MULTI" : (surgeTypes[0] ?? activeSurge?.bloodType ?? "");
 
   // Shared across screens
   const hour      = new Date().getHours();
@@ -203,6 +237,28 @@ export default function HomePanel() {
       setBookingError(e.message);
     } finally {
       setConfirming(false);
+    }
+  }
+
+  async function cancelBooking() {
+    // Slot bookings live server-side and must be cancelled there, otherwise
+    // they reappear on the next fetchBookings(). Legacy bookings (no slotId)
+    // only ever existed in local state, so just clear them.
+    const slotId = activeBooking?.slotId;
+    if (!slotId) {
+      setActiveBooking(null);
+      return;
+    }
+    setCancelling(true);
+    setBookingError(null);
+    try {
+      await cancelSlotBooking(slotId);
+      fetchBookings(); // re-sync from server (also frees the slot for the surge gate)
+      setScreen(null);
+    } catch (e) {
+      setBookingError(e.message);
+    } finally {
+      setCancelling(false);
     }
   }
 
@@ -256,8 +312,13 @@ export default function HomePanel() {
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontFamily: BL.sans, fontSize: 14, color: BL.ink, fontWeight: 600 }}>
-                      {slot.location}
+                      {slot.name ?? slot.location}
                     </div>
+                    {slot.name && slot.location && (
+                      <div style={{ fontFamily: BL.sans, fontSize: 12, color: BL.muted, marginTop: 1 }}>
+                        {slot.location}
+                      </div>
+                    )}
                     <div style={{ fontFamily: BL.mono, fontSize: 10, color: BL.muted, marginTop: 3, letterSpacing: 0.3 }}>
                       {slot.date}{slot.startTime && ` · ${slot.startTime}`}{slot.endTime && `–${slot.endTime}`}
                     </div>
@@ -679,15 +740,22 @@ export default function HomePanel() {
         </button>
 
         <button
-          onClick={() => setActiveBooking(null)}
+          onClick={cancelBooking}
+          disabled={cancelling}
           style={{
             width: "100%", padding: "11px 0", marginTop: 8, marginBottom: 8,
             background: "none", border: `1px solid ${BL.hair}`, borderRadius: 6,
-            fontFamily: BL.sans, fontSize: 13, color: BL.muted, cursor: "pointer", minHeight: 44,
+            fontFamily: BL.sans, fontSize: 13, color: BL.muted,
+            cursor: cancelling ? "default" : "pointer", opacity: cancelling ? 0.6 : 1, minHeight: 44,
           }}
         >
-          Cancel booking
+          {cancelling ? "Cancelling…" : "Cancel booking"}
         </button>
+        {bookingError && (
+          <div style={{ fontFamily: BL.sans, fontSize: 12, color: BL.need.critical.fg, marginBottom: 12 }}>
+            {bookingError}
+          </div>
+        )}
       </div>
     );
   }
@@ -706,7 +774,7 @@ export default function HomePanel() {
         >
           ← Back
         </button>
-        <Tag color={BL.surge}>SURGE · {activeSurge?.bloodType ?? "ACTIVE"}</Tag>
+        <Tag color={BL.surge}>SURGE · {surgeLabel || "ACTIVE"}</Tag>
         <div style={{ fontFamily: BL.sans, fontSize: 22, fontWeight: 600, color: BL.ink, letterSpacing: -0.4, lineHeight: 1.2, marginTop: 4, marginBottom: 6 }}>
           Mobilise your workplace
         </div>
@@ -741,7 +809,7 @@ export default function HomePanel() {
           <Tag>Step 2 · Message preview</Tag>
           <div style={{ marginTop: 10, padding: 12, background: BL.fill, borderRadius: 6, fontFamily: BL.sans, fontSize: 13, color: BL.ink, lineHeight: 1.55 }}>
             <b>{donor?.name ?? "A colleague"}</b> is organising a blood donation drive.
-            {activeSurge ? ` ${activeSurge.bloodType} is currently at critical supply nationally.` : ""}
+            {activeSurge ? ` ${surgeLabel} is currently at critical supply nationally.` : ""}
             {" "}It takes about 15 minutes — tap to RSVP.
           </div>
         </Card>
@@ -773,10 +841,10 @@ export default function HomePanel() {
             HSA NATIONAL ALERT · {alertDate} · {alertTime}
           </div>
           <div style={{ fontFamily: BL.sans, fontSize: 30, fontWeight: 600, color: BL.ink, lineHeight: 1.05, letterSpacing: -0.8, marginTop: 8 }}>
-            {activeSurge.bloodType} is needed today.
+            {surgeLabel} is needed today.
           </div>
           <div style={{ fontFamily: BL.sans, fontSize: 15, color: BL.muted, lineHeight: 1.5, marginTop: 10 }}>
-            {activeSurge.message || `HSA is calling all eligible ${activeSurge.bloodType} donors. Reserves are critically low — every unit counts.`}
+            {activeSurge.message || `HSA is calling all eligible ${surgeLabel} donors. Reserves are critically low — every unit counts.`}
           </div>
 
           <div style={{ marginTop: 18, padding: 16, background: BL.surgeBg, border: `1px solid ${BL.surge}55`, borderRadius: 8 }}>
@@ -784,7 +852,10 @@ export default function HomePanel() {
               <>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                   <div style={{ flex: 1, minWidth: 0, marginRight: 12 }}>
-                    <div style={{ fontFamily: BL.sans, fontSize: 15, color: BL.ink, fontWeight: 600 }}>{nearestSlot.location}</div>
+                    <div style={{ fontFamily: BL.sans, fontSize: 15, color: BL.ink, fontWeight: 600 }}>{nearestSlot.name ?? nearestSlot.location}</div>
+                    {nearestSlot.name && nearestSlot.location && (
+                      <div style={{ fontFamily: BL.sans, fontSize: 12, color: BL.muted, marginTop: 2 }}>{nearestSlot.location}</div>
+                    )}
                     {nearestSlot.startTime && (
                       <div style={{ fontFamily: BL.mono, fontSize: 11, color: BL.muted, marginTop: 4, letterSpacing: 0.3 }}>
                         {nearestSlot.date} · {nearestSlot.startTime}
@@ -795,9 +866,9 @@ export default function HomePanel() {
                     width: 52, height: 52, borderRadius: 6, flexShrink: 0,
                     background: BL.need.critical.bg, border: `2px solid ${BL.need.critical.fg}`,
                     display: "flex", alignItems: "center", justifyContent: "center",
-                    fontFamily: BL.mono, fontSize: 13, fontWeight: 700, color: BL.need.critical.fg,
+                    fontFamily: BL.mono, fontSize: surgeBadge.length > 3 ? 11 : 13, fontWeight: 700, color: BL.need.critical.fg,
                   }}>
-                    {activeSurge.bloodType}
+                    {surgeBadge}
                   </div>
                 </div>
                 {donor?.eligible !== false ? (
@@ -957,8 +1028,13 @@ export default function HomePanel() {
           ) : nearestSlot ? (
             <div style={{ marginTop: 8, background: BL.card, border: `1px solid ${BL.hair}`, borderRadius: 6, padding: 14 }}>
               <div style={{ fontFamily: BL.sans, fontSize: 14, color: BL.ink, fontWeight: 600 }}>
-                {nearestSlot.location}
+                {nearestSlot.name ?? nearestSlot.location}
               </div>
+              {nearestSlot.name && nearestSlot.location && (
+                <div style={{ fontFamily: BL.sans, fontSize: 12, color: BL.muted, marginTop: 1 }}>
+                  {nearestSlot.location}
+                </div>
+              )}
               <div style={{ fontFamily: BL.mono, fontSize: 10, color: BL.muted, marginTop: 3, letterSpacing: 0.3 }}>
                 {nearestSlot.date}
                 {nearestSlot.startTime ? ` · ${nearestSlot.startTime}` : ""}
