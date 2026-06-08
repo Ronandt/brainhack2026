@@ -1,8 +1,8 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import QRCode from "react-qr-code";
 import {
   getDonor, getStatus, getDrives,
-  getSlots, bookSlot, getBloodStock,
+  getSlots, bookSlot, cancelSlotBooking, getBloodStock,
   getSurgeMonitor, getMyBookings,
 } from "../api";
 import { getToken } from "../auth";
@@ -91,6 +91,7 @@ export default function HomePanel() {
   const [selectedSlot,      setSelectedSlot]      = useState(null);
   const [confirming,        setConfirming]        = useState(false);
   const [bookingError,      setBookingError]      = useState(null);
+  const [cancelling,        setCancelling]        = useState(false);
   const [checkedItems,      setCheckedItems]      = useState({});
   const [userId,            setUserId]            = useState(null);
 
@@ -122,12 +123,30 @@ export default function HomePanel() {
       .catch(() => setActiveBooking(null));
   }
 
+  // Browser push: remember which alerts we've already surfaced this session so
+  // the 30s poll doesn't fire a notification on every tick.
+  const notifiedAlertIds = useRef(new Set());
+
+  function pushBrowserNotification(alert) {
+    if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
+    if (notifiedAlertIds.current.has(alert.alertId)) return;
+    notifiedAlertIds.current.add(alert.alertId);
+    new Notification(`Surge alert — ${alert.bloodType} blood needed`, {
+      body: alert.message || `HSA is calling all eligible ${alert.bloodType} donors. Reserves are critically low.`,
+      tag: alert.alertId,
+    });
+  }
+
   function fetchSurge() {
     getSurgeMonitor()
       .then(d => {
         const alerts = d.activeAlerts ?? [];
         console.log("[Surge] active alerts:", alerts);
         setSurgeAlerts(alerts);
+        // Fire a browser push for any relevant new surge
+        alerts
+          .filter(a => a.bloodType === donor?.bloodType || a.geoTier === "island-wide")
+          .forEach(pushBrowserNotification);
       })
       .catch(err => console.error("[Surge] getSurgeMonitor failed:", err));
   }
@@ -143,6 +162,11 @@ export default function HomePanel() {
         setBloodStockUpdated(d.updatedAt ?? "");
       }),
     ]).finally(() => setLoading(false));
+
+    // Ask once for permission to send browser push notifications for surges
+    if (typeof Notification !== "undefined" && Notification.permission === "default") {
+      Notification.requestPermission().catch(() => {});
+    }
 
     fetchBookings();
     fetchSurge();
@@ -185,6 +209,28 @@ export default function HomePanel() {
       setBookingError(e.message);
     } finally {
       setConfirming(false);
+    }
+  }
+
+  async function cancelBooking() {
+    // Slot bookings live server-side and must be cancelled there, otherwise
+    // they reappear on the next fetchBookings(). Legacy bookings (no slotId)
+    // only ever existed in local state, so just clear them.
+    const slotId = activeBooking?.slotId;
+    if (!slotId) {
+      setActiveBooking(null);
+      return;
+    }
+    setCancelling(true);
+    setBookingError(null);
+    try {
+      await cancelSlotBooking(slotId);
+      fetchBookings(); // re-sync from server (also frees the slot for the surge gate)
+      setScreen(null);
+    } catch (e) {
+      setBookingError(e.message);
+    } finally {
+      setCancelling(false);
     }
   }
 
@@ -605,15 +651,22 @@ export default function HomePanel() {
         </button>
 
         <button
-          onClick={() => setActiveBooking(null)}
+          onClick={cancelBooking}
+          disabled={cancelling}
           style={{
             width: "100%", padding: "11px 0", marginTop: 8, marginBottom: 8,
             background: "none", border: `1px solid ${BL.hair}`, borderRadius: 6,
-            fontFamily: BL.sans, fontSize: 13, color: BL.muted, cursor: "pointer", minHeight: 44,
+            fontFamily: BL.sans, fontSize: 13, color: BL.muted,
+            cursor: cancelling ? "default" : "pointer", opacity: cancelling ? 0.6 : 1, minHeight: 44,
           }}
         >
-          Cancel booking
+          {cancelling ? "Cancelling…" : "Cancel booking"}
         </button>
+        {bookingError && (
+          <div style={{ fontFamily: BL.sans, fontSize: 12, color: BL.need.critical.fg, marginBottom: 12 }}>
+            {bookingError}
+          </div>
+        )}
       </div>
     );
   }

@@ -61,7 +61,6 @@ export default function SurgePanel() {
   const [bloodType, setBloodType] = useState("O-");
   const [geoTier, setGeoTier] = useState("island-wide");
   const [message, setMessage] = useState("");
-  const [approverId, setApproverId] = useState("");
   const [activating, setActivating] = useState(false);
   const [activateResult, setActivateResult] = useState(null);
   const [activateError, setActivateError] = useState("");
@@ -81,7 +80,7 @@ export default function SurgePanel() {
     e.preventDefault();
     setActivating(true); setActivateError(""); setActivateResult(null);
     try {
-      const res = await activateSurge({ bloodType, geoTier, message, approverId });
+      const res = await activateSurge({ bloodType, geoTier, message });
       setActivateResult(res);
     } catch (e) {
       setActivateError(e.message);
@@ -97,7 +96,7 @@ export default function SurgePanel() {
         <span style={s.bgTag}>Break-Glass · Activate Surge Alert</span>
         <div style={s.bgTitle}>Mobilise donors for critical shortage</div>
         <div style={s.bgSub}>
-          Requires HSA admin account + dual sign-off. Notifies eligible donors immediately and cannot be undone for 6h.
+          Requires an HSA admin account. Notifies eligible donors by push + email immediately and cannot be undone for 6h.
         </div>
         <form onSubmit={handleActivate}>
           <label style={s.label} htmlFor="surge-blood-type">Blood Type Needed</label>
@@ -109,14 +108,6 @@ export default function SurgePanel() {
           <select id="surge-geo-tier" style={s.select} value={geoTier} onChange={e => setGeoTier(e.target.value)}>
             {GEO_TIERS.map(t => <option key={t}>{t}</option>)}
           </select>
-
-          <label style={s.label} htmlFor="surge-approver">Second Approver ID (dual sign-off)</label>
-          <input
-            id="surge-approver"
-            style={s.input} value={approverId}
-            onChange={e => setApproverId(e.target.value)}
-            placeholder="HSA officer user ID" required
-          />
 
           <label style={s.label} htmlFor="surge-message">Message to Donors</label>
           <textarea

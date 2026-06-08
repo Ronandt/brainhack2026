@@ -6,11 +6,14 @@ import boto3
 from aws_lambda_powertools import Logger
 from aws_lambda_powertools.utilities.typing import LambdaContext
 from boto3.dynamodb.conditions import Attr
+from botocore.config import Config
 
 logger = Logger()
 dynamodb = boto3.resource("dynamodb")
+ses = boto3.client("ses", config=Config(connect_timeout=5, read_timeout=10, retries={"max_attempts": 2}))
 donors_table = dynamodb.Table(os.environ["DONORS_TABLE"])
 alerts_table = dynamodb.Table(os.environ["ALERTS_TABLE"])
+SENDER_EMAIL = os.environ.get("SENDER_EMAIL", "")
 
 # Geo tier radius mapping (km) — used for filtering by postalCode prefix heuristic
 GEO_TIER_RADIUS = {"5km": 1, "15km": 2, "island-wide": None}
@@ -46,23 +49,35 @@ def _dispatch_notifications(message: dict) -> None:
     # For hackathon: island-wide always matches, narrower tiers use postal prefix heuristic
 
     notified = 0
+    emails_sent = 0
     for donor in donors:
+        reached = False
+
         push_token = donor.get("pushToken")
         if push_token:
             _send_push(push_token, blood_type, alert_message, alert_id)
+            reached = True
+
+        email = donor.get("email")
+        if email and _send_email(email, blood_type, alert_message, alert_id):
+            emails_sent += 1
+            reached = True
+
+        if reached:
             notified += 1
 
-    # Update alert with notification count
+    # Update alert with notification counts (surfaced live on the HSA console + donor site)
     alerts_table.update_item(
         Key={"alertId": alert_id},
-        UpdateExpression="SET donorsNotified = :n, lastUpdated = :t",
+        UpdateExpression="SET donorsNotified = :n, emailsSent = :e, lastUpdated = :t",
         ExpressionAttributeValues={
             ":n": notified,
+            ":e": emails_sent,
             ":t": datetime.utcnow().isoformat(),
         },
     )
 
-    logger.info("Notifications dispatched", alert_id=alert_id, count=notified)
+    logger.info("Notifications dispatched", alert_id=alert_id, count=notified, emails=emails_sent)
 
 
 def _send_push(push_token: str, blood_type: str, message: str, alert_id: str) -> None:
@@ -80,3 +95,33 @@ def _send_push(push_token: str, blood_type: str, message: str, alert_id: str) ->
     # TODO: Replace with real push delivery:
     # sns_client.publish(TargetArn=push_token, Message=message, ...)
     # or: requests.post("https://exp.host/--/api/v2/push/send", ...)
+
+
+def _send_email(email: str, blood_type: str, message: str, alert_id: str) -> bool:
+    """Send a surge alert email to a donor via SES. Returns True on success."""
+    if not SENDER_EMAIL:
+        logger.warning("SENDER_EMAIL not configured — skipping email", alert_id=alert_id)
+        return False
+
+    subject = f"Urgent: {blood_type} blood needed — Bloodline surge alert"
+    body_text = (
+        f"{message}\n\n"
+        f"You're receiving this because you're a registered {blood_type} donor and HSA has "
+        f"activated a surge alert. If you're eligible, please open the Bloodline app to book a "
+        f"slot. You can opt out of surge alerts in Profile -> Notifications."
+    )
+
+    try:
+        ses.send_email(
+            Source=SENDER_EMAIL,
+            Destination={"ToAddresses": [email]},
+            Message={
+                "Subject": {"Data": subject},
+                "Body": {"Text": {"Data": body_text}},
+            },
+        )
+        logger.info("Surge email sent", alert_id=alert_id, blood_type=blood_type)
+        return True
+    except Exception:
+        logger.exception("Failed to send surge email", alert_id=alert_id)
+        return False

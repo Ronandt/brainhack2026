@@ -47,7 +47,7 @@ def lambda_handler(event: dict, context: LambdaContext) -> dict:
 
 
 def _activate_surge(event: dict) -> dict:
-    # Break-glass: require HSA admin group
+    # Break-glass: require HSA admin group. Single-officer activation — no dual sign-off.
     if not _is_hsa_admin(event):
         return _response(403, {"error": "HSA admin access required to activate surge alerts"})
 
@@ -55,14 +55,11 @@ def _activate_surge(event: dict) -> dict:
     blood_type = body.get("bloodType")
     geo_tier = body.get("geoTier", "island-wide")
     message = body.get("message", "")
-    approver_id = body.get("approverId")  # dual sign-off: second HSA officer
 
     if not blood_type:
         return _response(400, {"error": "bloodType is required"})
     if geo_tier not in GEO_TIERS:
         return _response(400, {"error": f"geoTier must be one of {GEO_TIERS}"})
-    if not approver_id:
-        return _response(400, {"error": "approverId required for dual sign-off"})
 
     alert_id = str(uuid.uuid4())
     activated_by = event["requestContext"]["authorizer"]["claims"]["sub"]
@@ -75,9 +72,9 @@ def _activate_surge(event: dict) -> dict:
         "message": message,
         "status": "active",
         "activatedBy": activated_by,
-        "approverId": approver_id,
         "activatedAt": now,
         "donorsNotified": 0,
+        "emailsSent": 0,
         "responses": 0,
         "bookings": 0,
     }
@@ -132,7 +129,7 @@ def _monitor_surge(event: dict) -> dict:
     alerts = result.get("Items", [])
 
     for alert in alerts:
-        for key in ("donorsNotified", "responses", "bookings"):
+        for key in ("donorsNotified", "emailsSent", "responses", "bookings"):
             if key in alert:
                 alert[key] = int(alert[key])
 

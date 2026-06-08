@@ -47,7 +47,6 @@ export default function SurgePanel() {
   const [bloodType,  setBloodType]  = useState("O-");
   const [geoTier,    setGeoTier]    = useState("island-wide");
   const [message,    setMessage]    = useState("");
-  const [approverId, setApproverId] = useState("");
   const [loading,    setLoading]    = useState(false);
   const [result,     setResult]     = useState(null);
   const [error,      setError]      = useState("");
@@ -76,7 +75,7 @@ export default function SurgePanel() {
     e.preventDefault();
     setLoading(true); setResult(null); setError("");
     try {
-      const res = await activateSurge({ bloodType, geoTier, message, approverId });
+      const res = await activateSurge({ bloodType, geoTier, message });
       setResult(res);
     } catch (e) {
       setError(e.message);
@@ -104,7 +103,7 @@ export default function SurgePanel() {
             Surge Mode activation
           </div>
           <div style={{ fontFamily: BL.sans, fontSize: 13, color: BL.muted, marginTop: 4 }}>
-            Mobilise the donor pool when forecasted shortage exceeds the response threshold. Requires Director sign-off.
+            Mobilise the donor pool when forecasted shortage exceeds the response threshold. Single HSA officer activation.
           </div>
         </div>
         <Tag color={BL.muted}>Status · Stand-by · {activeAlerts.length} active surges</Tag>
@@ -224,15 +223,6 @@ export default function SurgePanel() {
             />
           </div>
 
-          {/* Second approver */}
-          <label style={labelStyle} htmlFor="asc-approver">Second approver ID (dual sign-off)</label>
-          <input
-            id="asc-approver"
-            style={inputStyle}
-            value={approverId}
-            onChange={e => setApproverId(e.target.value)}
-            placeholder="Second HSA officer's user ID"
-          />
         </W>
 
         {/* ── Right column ────────────────────────── */}
@@ -281,26 +271,26 @@ export default function SurgePanel() {
               padding: 20, borderRadius: 8,
               background: BL.surgeBg, border: `2px solid ${BL.surge}`,
             }}>
-              <Tag color={BL.surge}>Break glass · requires dual sign-off</Tag>
+              <Tag color={BL.surge}>Break glass · single-officer activation</Tag>
               <div style={{ fontFamily: BL.sans, fontSize: 14, color: BL.ink, fontWeight: 500, marginTop: 8, lineHeight: 1.4 }}>
-                Activating will notify <strong>{reach.notified.toLocaleString()}</strong> donors and shift the donor app into surge mode.
+                Activating will notify <strong>{reach.notified.toLocaleString()}</strong> donors by push + email and shift the donor app into surge mode.
                 Cannot be undone for 6h.
               </div>
               <button
                 type="submit"
-                disabled={loading || !approverId}
+                disabled={loading}
                 style={{
                   marginTop: 14, width: "100%", padding: "13px 0",
-                  background: loading || !approverId ? BL.faint : BL.surge,
+                  background: loading ? BL.faint : BL.surge,
                   color: "#fff", border: "none", borderRadius: 8,
                   fontFamily: BL.sans, fontSize: 14, fontWeight: 600,
-                  cursor: loading || !approverId ? "default" : "pointer",
+                  cursor: loading ? "default" : "pointer",
                 }}
               >
                 {loading ? "Activating…" : "Activate Surge Mode →"}
               </button>
               <div style={{ fontFamily: BL.mono, fontSize: 9, color: BL.muted, marginTop: 8, textAlign: "center", letterSpacing: 0.4 }}>
-                REQUIRES · DIRECTOR LIM · DIRECTOR TAN
+                LOGGED · SINGLE-OFFICER BREAK-GLASS · AUDITED
               </div>
               {result && <div style={{ fontFamily: BL.sans, color: BL.need.ok.fg, fontSize: 12, marginTop: 10 }}>✓ Alert {result.alertId?.slice(0, 8)}… activated</div>}
               {error  && <div style={{ fontFamily: BL.sans, color: BL.need.critical.fg, fontSize: 12, marginTop: 10 }}>{error}</div>}
@@ -339,6 +329,10 @@ export default function SurgePanel() {
                     <div style={{ textAlign: "center" }}>
                       <div style={{ fontSize: 16, fontWeight: 600, color: BL.ink }}>{a.donorsNotified ?? 0}</div>
                       <div style={{ fontSize: 9, color: BL.muted, letterSpacing: 0.4, textTransform: "uppercase", marginTop: 2 }}>Notified</div>
+                    </div>
+                    <div style={{ textAlign: "center" }}>
+                      <div style={{ fontSize: 16, fontWeight: 600, color: BL.ink }}>{a.emailsSent ?? 0}</div>
+                      <div style={{ fontSize: 9, color: BL.muted, letterSpacing: 0.4, textTransform: "uppercase", marginTop: 2 }}>Emails</div>
                     </div>
                     <div style={{ textAlign: "center" }}>
                       <div style={{ fontSize: 16, fontWeight: 600, color: BL.ink }}>{a.responses ?? 0}</div>

@@ -54,6 +54,8 @@ export const getSlots = (bloodType) =>
   request("/api/v1/slots" + (bloodType ? `?bloodType=${bloodType}` : ""));
 export const bookSlot = (slotId) =>
   request(`/api/v1/slots/${slotId}/book`, { method: "POST" });
+export const cancelSlotBooking = (slotId) =>
+  request(`/api/v1/slots/${slotId}/book`, { method: "DELETE" });
 
 // Blood drives — hospital creates, admin approves
 export const createDrive = (body) =>

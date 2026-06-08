@@ -80,7 +80,7 @@ def _get_donor(donor_id: str) -> dict:
 
 
 def _update_donor(donor_id: str, body: dict) -> dict:
-    allowed_fields = {"name", "bloodType", "postalCode", "pushToken", "lastDonatedAt", "department", "phone"}
+    allowed_fields = {"name", "bloodType", "postalCode", "pushToken", "lastDonatedAt", "department", "phone", "email"}
     updates = {k: v for k, v in body.items() if k in allowed_fields}
 
     if not updates:

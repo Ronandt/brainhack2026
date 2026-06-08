@@ -14,5 +14,5 @@
       }
     }
   },
-  "body": "{\"bloodType\":\"O-\",\"geoTier\":\"island-wide\",\"message\":\"Critical shortage of O- blood. All eligible donors urgently needed.\",\"approverId\":\"hsa-officer-002\"}"
+  "body": "{\"bloodType\":\"O-\",\"geoTier\":\"island-wide\",\"message\":\"Critical shortage of O- blood. All eligible donors urgently needed.\"}"
 }
