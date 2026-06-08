@@ -28,6 +28,15 @@ Parameters:
     Type: String
     Default: dev
     AllowedValues: [dev, staging, prod]
+  SenderEmail:
+    Type: String
+    Default: ""
+    Description: SES-verified "from" address used for surge alert emails (leave blank to disable email)
+  LtaAccountKey:
+    Type: String
+    Default: "SGVWAY+7SwSN1dTLV9kN4Q=="
+    NoEcho: true
+    Description: LTA DataMall AccountKey used to fetch live traffic incidents for the HSA ops feed
 
 # ---------------------------------------------------------------------------
 # API GATEWAY
@@ -413,7 +422,7 @@ Resources:
       FunctionName: !Sub bloodline-surge-${Stage}
       CodeUri: src/surge/
       Handler: handler.lambda_handler
-      Description: Break-glass surge alert activation (requires HSA dual sign-off)
+      Description: Break-glass surge alert activation (single HSA officer)
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref AlertsTable
@@ -447,12 +456,21 @@ Resources:
       FunctionName: !Sub bloodline-notify-${Stage}
       CodeUri: src/notify/
       Handler: handler.lambda_handler
-      Description: Dispatches push/SMS alerts to eligible donors based on blood type and geo tier
+      Description: Dispatches push + email alerts to eligible donors based on blood type and geo tier
+      Environment:
+        Variables:
+          SENDER_EMAIL: !Ref SenderEmail
       Policies:
         - DynamoDBReadPolicy:
             TableName: !Ref DonorsTable
         - DynamoDBCrudPolicy:
             TableName: !Ref AlertsTable
+        - Statement:
+            - Effect: Allow
+              Action:
+                - ses:SendEmail
+                - ses:SendRawEmail
+              Resource: "*"
       Events:
         SurgeSNSTrigger:
           Type: SNS
@@ -494,6 +512,12 @@ Resources:
             RestApiId: !Ref BloodlineApi
             Path: /api/v1/slots/{slotId}/book
             Method: POST
+        CancelSlot:
+          Type: Api
+          Properties:
+            RestApiId: !Ref BloodlineApi
+            Path: /api/v1/slots/{slotId}/book
+            Method: DELETE
         ListHospitalDrives:
           Type: Api
           Properties:
@@ -571,6 +595,9 @@ Resources:
       CodeUri: src/admin/
       Handler: handler.lambda_handler
       Description: HSA admin console — donor segments, drive approvals, stock overview, demand input, donation recording
+      Environment:
+        Variables:
+          LTA_ACCOUNT_KEY: !Ref LtaAccountKey
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref DonorsTable
@@ -621,6 +648,12 @@ Resources:
             RestApiId: !Ref BloodlineApi
             Path: /api/v1/admin/alerts
             Method: GET
+        GetTrafficIncidents:
+          Type: Api
+          Properties:
+            RestApiId: !Ref BloodlineApi
+            Path: /api/v1/admin/traffic-incidents
+            Method: GET
         SubmitHospitalDemand:
           Type: Api
           Properties:
@@ -650,11 +683,17 @@ Resources:
       Environment:
         Variables:
           HOSPITALS_TABLE: !Ref HospitalsTable
+          SLOT_BOOKINGS_TABLE: !Ref SlotBookingsTable
+          DONORS_TABLE: !Ref DonorsTable
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref HospitalsTable
         - DynamoDBCrudPolicy:
             TableName: !Ref DonationSlotsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref SlotBookingsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref DonorsTable
       Events:
         CreateSlot:
           Type: Api

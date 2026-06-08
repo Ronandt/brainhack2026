@@ -44,6 +44,8 @@ def lambda_handler(event: dict, context: LambdaContext) -> dict:
     # Donation slots (hospital-posted availability for donors to book)
     if "/slots" in path and "/book" in path and method == "POST":
         return _book_slot(event)
+    if "/slots" in path and "/book" in path and method == "DELETE":
+        return _cancel_slot_booking(event)
     if "/slots" in path and method == "GET":
         return _list_slots(event)
 
@@ -99,7 +101,7 @@ def _list_my_bookings(event: dict) -> dict:
             enriched.append({
                 **booking,
                 "drive": {
-                    "name": slot.get("location", ""),
+                    "name": slot.get("name") or slot.get("location", ""),
                     "location": slot.get("location", ""),
                     "date": slot.get("date", ""),
                     "startTime": slot.get("startTime", ""),
@@ -188,6 +190,44 @@ def _book_slot(event: dict) -> dict:
 
     logger.info("Slot booked", donor_id=donor_id, slot_id=slot_id, booking_id=booking_id)
     return _response(201, {"bookingId": booking_id, "slotId": slot_id, "status": "confirmed"})
+
+
+def _cancel_slot_booking(event: dict) -> dict:
+    donor_id = _donor_id_from_event(event)
+    slot_id = (event.get("pathParameters") or {}).get("slotId")
+    if not slot_id:
+        return _response(400, {"error": "slotId is required"})
+
+    existing = slot_bookings_table.get_item(Key={"donorId": donor_id, "slotId": slot_id})
+    if not existing.get("Item"):
+        return _response(404, {"error": "Booking not found"})
+
+    slot_bookings_table.delete_item(Key={"donorId": donor_id, "slotId": slot_id})
+
+    # Free the seat: decrement booked and re-open the slot if it was full.
+    slot = slots_table.get_item(Key={"slotId": slot_id}).get("Item")
+    if slot:
+        new_booked = max(int(slot.get("booked", 0)) - 1, 0)
+        update_expr = "SET booked = :b"
+        expr_vals = {":b": new_booked}
+        if slot.get("status") == "full":
+            update_expr += ", #st = :avail"
+            expr_vals[":avail"] = "available"
+            slots_table.update_item(
+                Key={"slotId": slot_id},
+                UpdateExpression=update_expr,
+                ExpressionAttributeValues=expr_vals,
+                ExpressionAttributeNames={"#st": "status"},
+            )
+        else:
+            slots_table.update_item(
+                Key={"slotId": slot_id},
+                UpdateExpression=update_expr,
+                ExpressionAttributeValues=expr_vals,
+            )
+
+    logger.info("Slot booking cancelled", donor_id=donor_id, slot_id=slot_id)
+    return _response(200, {"slotId": slot_id, "status": "cancelled"})
 
 
 # ── Blood drives ──────────────────────────────────────────────────────────────

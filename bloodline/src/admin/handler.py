@@ -1,5 +1,7 @@
 import json
 import os
+import urllib.error
+import urllib.request
 from datetime import datetime, timedelta, timezone
 
 import boto3
@@ -19,6 +21,11 @@ predictions_table = dynamodb.Table(os.environ["PREDICTIONS_TABLE"])
 ELIGIBILITY_DAYS = 56
 DORMANT_DAYS = 365
 AT_RISK_DAYS = 180
+
+# LTA DataMall — live traffic accidents. Browsers can't call DataMall directly
+# (it sends no CORS headers), so this Lambda relays it for the HSA ops feed.
+LTA_INCIDENTS_URL = "https://datamall2.mytransport.sg/ltaodataservice/TrafficIncidents"
+LTA_ACCOUNT_KEY = os.environ.get("LTA_ACCOUNT_KEY", "")
 
 
 def _response(status_code, body):
@@ -73,6 +80,8 @@ def lambda_handler(event: dict, context: LambdaContext) -> dict:
         return _blood_stock_overview()
     if "/admin/alerts" in path:
         return _all_alerts()
+    if "/admin/traffic-incidents" in path and method == "GET":
+        return _traffic_incidents()
     if "/admin/demand" in path and method == "POST":
         return _submit_hospital_demand(event)
 
@@ -178,6 +187,43 @@ def _all_alerts():
                 a[k] = int(a[k])
     alerts.sort(key=lambda x: x.get("activatedAt", ""), reverse=True)
     return _response(200, {"alerts": alerts, "count": len(alerts)})
+
+
+def _traffic_incidents():
+    """Relay live LTA DataMall traffic incidents (accidents & incidents) for the HSA ops feed."""
+    if not LTA_ACCOUNT_KEY:
+        logger.warning("LTA_ACCOUNT_KEY not configured — returning empty incident feed")
+        return _response(200, {"incidents": [], "count": 0, "error": "LTA_ACCOUNT_KEY not configured"})
+
+    req = urllib.request.Request(
+        LTA_INCIDENTS_URL,
+        headers={"AccountKey": LTA_ACCOUNT_KEY, "accept": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+    except (urllib.error.URLError, TimeoutError, ValueError):
+        logger.exception("Failed to fetch LTA traffic incidents")
+        return _response(502, {"error": "Could not reach LTA DataMall"})
+
+    incidents = []
+    for item in payload.get("value", []):
+        if (item.get("Type") or "") != "Accident":
+            continue
+        incidents.append({
+            "type": "Accident",
+            "message": item.get("Message", ""),
+            "latitude": item.get("Latitude"),
+            "longitude": item.get("Longitude"),
+            "tone": "critical",
+        })
+
+    logger.info("Traffic accidents fetched", count=len(incidents))
+    return _response(200, {
+        "incidents": incidents,
+        "count": len(incidents),
+        "asOf": datetime.utcnow().isoformat(),
+    })
 
 
 def _submit_hospital_demand(event):
