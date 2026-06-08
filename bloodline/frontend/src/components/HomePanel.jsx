@@ -155,8 +155,8 @@ export default function HomePanel() {
     ({ Healthy: "ok", Moderate: "low", Low: "urgent", Critical: "critical" })[s] ?? "ok";
 
   const userType  = donor?.bloodType;
-  const typeStatus = status?.byBloodType?.find(t => t.bloodType === userType);
-  const typeNeed  = typeStatus ? riskToNeed(typeStatus.riskLevel) : "ok";
+  const typeStockItem = bloodStock.find(s => s.bloodType === userType);
+  const typeNeed      = typeStockItem ? statusToNeed(typeStockItem.status) : "ok";
 
   // Active surge: hidden if snoozed OR donor already has a confirmed booking
   const isSnoozed  = Date.now() < snoozedUntil;
@@ -171,6 +171,10 @@ export default function HomePanel() {
 
   async function confirmBooking() {
     if (!selectedSlot) return;
+    if (donor && !donor.eligible) {
+      setBookingError(`You can't donate yet — ${donor.daysUntilEligible} days remaining.`);
+      return;
+    }
     setConfirming(true);
     setBookingError(null);
     try {
@@ -717,16 +721,22 @@ export default function HomePanel() {
                     {activeSurge.bloodType}
                   </div>
                 </div>
-                <button
-                  onClick={() => { setSelectedSlot(nearestSlot); setScreen("booking"); }}
-                  style={{
-                    width: "100%", marginTop: 14, padding: "13px 0",
-                    background: BL.surge, color: "#fff", border: "none", borderRadius: 8,
-                    fontFamily: BL.sans, fontSize: 14, fontWeight: 600, cursor: "pointer", minHeight: 48,
-                  }}
-                >
-                  Book a slot →
-                </button>
+                {donor?.eligible !== false ? (
+                  <button
+                    onClick={() => { setSelectedSlot(nearestSlot); setScreen("booking"); }}
+                    style={{
+                      width: "100%", marginTop: 14, padding: "13px 0",
+                      background: BL.surge, color: "#fff", border: "none", borderRadius: 8,
+                      fontFamily: BL.sans, fontSize: 14, fontWeight: 600, cursor: "pointer", minHeight: 48,
+                    }}
+                  >
+                    Book a slot →
+                  </button>
+                ) : (
+                  <div style={{ marginTop: 14, padding: "11px 14px", background: `${BL.surge}18`, borderRadius: 8, fontFamily: BL.sans, fontSize: 13, color: BL.surge }}>
+                    You're in the rest window — rally your friends instead.
+                  </div>
+                )}
               </>
             ) : (
               <>
@@ -799,11 +809,11 @@ export default function HomePanel() {
             : status ? `National supply is ${status.nationalStatus ?? "—"}.` : ""
         }
       >
-        {status?.byBloodType && (
+        {bloodStock.length > 0 && (
           <div style={{ marginTop: 10, background: BL.card, border: `1px solid ${BL.hair}`, borderRadius: 6, padding: 10 }}>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(8, 1fr)", gap: 3, marginBottom: 8 }}>
-              {status.byBloodType.map(item => {
-                const need     = riskToNeed(item.riskLevel);
+              {bloodStock.map(item => {
+                const need     = statusToNeed(item.status);
                 const selected = item.bloodType === userType;
                 return (
                   <div key={item.bloodType} style={{
@@ -832,7 +842,40 @@ export default function HomePanel() {
       {/* Node 3 — When can I go? */}
       {(nearestSlot || donor) && (
         <TimelineNode dot={BL.ink} tag="WHEN CAN I GO?" last>
-          {nearestSlot ? (
+          {donor && !donor.eligible ? (
+            /* Not yet eligible — rally friends instead */
+            <div style={{ marginTop: 8 }}>
+              <div style={{
+                background: BL.fill, border: `1px solid ${BL.hair}`,
+                borderRadius: 6, padding: 14, marginBottom: 10,
+              }}>
+                <div style={{ fontFamily: BL.sans, fontSize: 14, color: BL.ink, fontWeight: 600, marginBottom: 4 }}>
+                  You can donate again in {donor.daysUntilEligible} day{donor.daysUntilEligible !== 1 ? "s" : ""}
+                </div>
+                <div style={{ fontFamily: BL.sans, fontSize: 13, color: BL.muted, lineHeight: 1.5 }}>
+                  You're still within your 60-day rest window. But the need is real — get your friends to step up while you recover.
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  const msg = `Hey! Singapore's blood reserves need help right now. I can't donate yet but you can — it only takes 15 minutes and saves up to 3 lives. Book a slot here: <link>`;
+                  if (navigator.share) {
+                    navigator.share({ title: "Donate blood for Singapore", text: msg, url: "<link>" }).catch(() => {});
+                  } else {
+                    navigator.clipboard?.writeText(msg);
+                  }
+                }}
+                style={{
+                  width: "100%", padding: "13px 0",
+                  background: BL.ink, color: "#fff", border: "none", borderRadius: 8,
+                  fontFamily: BL.sans, fontSize: 14, fontWeight: 600, cursor: "pointer", minHeight: 48,
+                  display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+                }}
+              >
+                Rally friends →
+              </button>
+            </div>
+          ) : nearestSlot ? (
             <div style={{ marginTop: 8, background: BL.card, border: `1px solid ${BL.hair}`, borderRadius: 6, padding: 14 }}>
               <div style={{ fontFamily: BL.sans, fontSize: 14, color: BL.ink, fontWeight: 600 }}>
                 {nearestSlot.location}
@@ -864,37 +907,6 @@ export default function HomePanel() {
             </div>
           )}
         </TimelineNode>
-      )}
-
-      {/* Live blood stock — Red Cross SG (scraped every 15 min) */}
-      {bloodStock.length > 0 && (
-        <Card style={{ marginTop: 10 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-            <Tag>Live stock · Red Cross SG</Tag>
-            {bloodStockUpdated && <Tag color={BL.faint}>{bloodStockUpdated.slice(0, 10)}</Tag>}
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            {bloodStock.map(item => {
-              const need = statusToNeed(item.status);
-              return (
-                <div key={item.bloodType}>
-                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                    <span style={{ fontFamily: BL.mono, fontSize: 11, fontWeight: 700, color: BL.ink }}>{item.bloodType}</span>
-                    <span style={{ fontFamily: BL.mono, fontSize: 10, color: BL.need[need].fg, textTransform: "uppercase", letterSpacing: 0.4 }}>
-                      {item.status} · {Math.min(item.percentage, 100)}%
-                    </span>
-                  </div>
-                  <div style={{ background: BL.fill, borderRadius: 3, height: 6, overflow: "hidden" }}>
-                    <div style={{
-                      width: `${Math.min(item.percentage, 100)}%`, height: "100%",
-                      background: BL.need[need].fg, borderRadius: 3, transition: "width 0.6s ease",
-                    }} />
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </Card>
       )}
     </div>
   );
