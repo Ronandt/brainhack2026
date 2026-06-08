@@ -1,6 +1,6 @@
 # BloodLine — Project Handoff
 
-> **Last updated:** 2026-06-04
+> **Last updated:** 2026-06-08
 > **Updated by:** Claude (Sonnet 4.6) — auto-updated on every code change
 
 ---
@@ -10,10 +10,10 @@
 BloodLine is Singapore's national blood supply crisis-resilience platform, built for **Brainhack 2026**. The core thesis: no existing system anticipates shortages, mobilises donors in emergencies, or retains donors long-term.
 
 **Three core modes:**
-- **Predict** — 14-day Bayesian shortage forecast per blood type; regional risk map; national need indicator (ok / low / urgent / critical)
-- **Surge** — Break-glass emergency geo-tiered donor alerts (5km → 15km → island-wide), dual HSA director sign-off required, multi-channel (push + SMS)
+- **Predict** — 14-day seasonality-based shortage forecast per blood type; anchored to live Red Cross SG data; per-blood-type risk thresholds
+- **Surge** — Break-glass emergency geo-tiered donor alerts (5km → 15km → island-wide), dual HSA director sign-off required, multi-channel (push + SMS); End Surge button
 - **Retain** — Impact cards, lifetime stats, HSA milestone badges (Bronze 10 → Silver 25 → Gold 50 → Honorary 100), squads, streaks
-- **Schedule** — 3-step booking flow, blood drives near you, community drive approval queue
+- **Schedule** — 3-step booking flow (slot-based), Book tab (consolidated drives + bloodbank slots), Squad RSVP, 5km geolocation filter
 
 **Three user roles** (detected from Cognito JWT group):
 | Role | Group | Dashboard |
@@ -31,10 +31,10 @@ BloodLine is Singapore's national blood supply crisis-resilience platform, built
 | Frontend | React 18 + Vite, inline styles, no CSS files |
 | Design tokens | `BL` object in `tokens.js` — IBM Plex Sans/Mono |
 | Auth | AWS Cognito (User Pool + hosted UI) |
-| API | AWS API Gateway (REST) + Lambda (Python, `aws_lambda_powertools`) |
+| API | AWS API Gateway (REST) + Lambda (Python 3.13, `aws_lambda_powertools`) |
 | Database | DynamoDB |
 | Notifications | SNS → NotifyFunction → push/SMS |
-| Scheduled jobs | EventBridge → hsa-sync Lambda |
+| Scheduled jobs | EventBridge → hsa-sync Lambda (15 min), predict Lambda (hourly) |
 | Region | `ap-southeast-1` |
 | API base URL | `https://3lnyz8rj83.execute-api.ap-southeast-1.amazonaws.com/dev` |
 
@@ -54,33 +54,39 @@ brainhack2026/
 │   │       ├── config.js               # API_URL, Cognito pool/client IDs
 │   │       └── components/
 │   │           ├── Dashboard.jsx       # Role detection + all layout shells
-│   │           ├── HomePanel.jsx       # Donor home + booking flow + surge banner
+│   │           ├── HomePanel.jsx       # Donor home + booking flow + surge banner + rally friends
 │   │           ├── ImpactPanel.jsx     # Donor impact / retain stats
-│   │           ├── DonorDrivesPanel.jsx# Donor drives list + quick RSVP
+│   │           ├── DonorDrivesPanel.jsx# "Book" tab — consolidated drives+slots, Squad RSVP
 │   │           ├── DonorPanel.jsx      # Donor profile / streak / squads
+│   │           ├── Auth.jsx            # Login/signup — desktop split-panel, mobile native
 │   │           ├── admin/
-│   │           │   ├── OverviewPanel.jsx   # HSA forecast + stock grid + right rail
-│   │           │   ├── SurgePanel.jsx      # Surge activation (blood chips, break-glass)
+│   │           │   ├── OverviewPanel.jsx   # Forecast + stock grid + SVG line chart + heatmap
+│   │           │   ├── SurgePanel.jsx      # Surge activation + End Surge button
 │   │           │   ├── DonorsPanel.jsx     # Donor pool segmentation + retention campaigns
-│   │           │   ├── DrivesPanel.jsx     # Drive approval queue (2-col card grid)
-│   │           │   └── DemandPanel.jsx     # Hospital demand signal submission
+│   │           │   ├── DrivesPanel.jsx     # Drive approval queue
+│   │           │   ├── DemandPanel.jsx     # Hospital demand signal submission
+│   │           │   └── AdminProfilePanel.jsx # HSA admin profile (name, dept, contact)
 │   │           └── hospital/
 │   │               ├── MySlotsPanel.jsx    # Hospital: view submitted slots
-│   │               └── CreateSlotPanel.jsx # Hospital: submit new demand slot
+│   │               ├── CreateSlotPanel.jsx # Hospital: submit new demand slot
+│   │               ├── CheckinPanel.jsx    # QR scanner + donor check-in + donation recording
+│   │               └── SetupLocationPanel.jsx # Hospital: first-time location setup
 │   └── src/
-│       ├── predict/handler.py          # GET /status, GET /forecast — heuristic model
-│       ├── surge/handler.py            # POST /activate (HSA only), GET /monitor (all)
+│       ├── predict/handler.py          # GET /status, GET /forecast — seasonality model (Red Cross anchored)
+│       ├── surge/handler.py            # POST /activate, POST /{id}/end, GET /monitor
 │       ├── notify/handler.py           # SNS subscriber — dispatches push/SMS
 │       ├── donors/handler.py           # GET/PUT /donors/me — donor CRUD + eligibility
-│       ├── schedule/handler.py         # GET /drives, POST /book
+│       ├── schedule/handler.py         # GET /drives, /slots, /bookings; POST /book, /slots/{id}/book
 │       ├── retain/handler.py           # GET /retain/stats — impact, badges, streaks
-│       ├── hsa-sync/handler.py         # EventBridge cron — syncs blood stock
-│       └── admin/handler.py            # Admin endpoints — stock, alerts, segments, demand
+│       ├── hsa-sync/handler.py         # EventBridge cron — scrapes Red Cross SG every 15 min
+│       ├── admin/handler.py            # Admin endpoints — stock, alerts, segments, demand, donor lookup
+│       ├── hospital/handler.py         # Hospital profile, slot creation, drive submission
+│       └── diagnostics/handler.py      # Health checks, invoke scheduled functions manually
 └── prototype/
-    ├── wireframe-tokens.jsx            # Design system primitives (W, Tag, Btn, BloodChip)
-    ├── donor-screens.jsx               # Donor app prototype screens
-    ├── hsa-screens.jsx                 # HSA console prototype screens
-    └── hospital-screens.jsx            # Hospital portal prototype screens
+    ├── wireframe-tokens.jsx
+    ├── donor-screens.jsx
+    ├── hsa-screens.jsx
+    └── hospital-screens.jsx
 ```
 
 ---
@@ -92,75 +98,120 @@ brainhack2026/
 - **Responsive layout** — `useIsMobile()` hook at 768px breakpoint
   - Desktop: 180px white left sidebar (logo + nav + sign-out)
   - Mobile: no top bar, bottom tab bar (56px fixed), safe area inset top
-- **Tab bar** — Home / Drives / Impact / You; square `TabIcon` (22×22, borderRadius 5)
-- **AppHeader pattern** — mono 9px sub-label + 22px 600-weight title + optional right element; used in every panel
+- **Tab bar** — Home / Book / Impact / You
 
 **HomePanel** (`HomePanel.jsx`):
-- Fetches donor profile, national status, nearby drives in parallel on load
+- Fetches donor profile, national status, nearby slots in parallel on load
 - **Live surge banner** — polls `GET /surge/monitor` every 30s; shows red break-glass card when:
   - Active surge for donor's exact blood type, OR
   - Any active island-wide surge (national emergency visible to all)
-- 3-step booking flow: slot picker → confirm (quick-check list) → success screen
-- Eligibility card (shows days until next eligible), national need hero card, blood type grid (8 types, tinted by risk), nearest drives
+  - Hidden if donor already has a confirmed booking or has snoozed (2h)
+- **3-step booking flow**: slot picker → confirm (eligibility quick-check list) → success screen; uses `bookSlot()` → `slot_bookings_table`
+- **Eligibility gate**: ineligible donors (last donation < 60 days) see "Rally friends" instead of booking button
+  - Rally friends button uses `navigator.share()` (native share sheet on iOS/Android) with pre-written message + `<link>` placeholder
+- **Blood type grid**: sourced from live Red Cross SG scrape (`bloodStock`), uses `statusToNeed` mapping — consistent with HSA portal
+- **QR check-in screen**: donor's QR code is their Cognito `sub` decoded from JWT (reliable even before profile loads); "I have arrived →" button
+- **Booked screen**: shows upcoming booking details pulled from `getMyBookings()` (combines drive + slot bookings)
+
+**Book tab** (`DonorDrivesPanel.jsx`):
+- **Unified view** — fetches both `getDrives()` and `getSlots()` in parallel, merges and sorts by date
+- **Type badges**: orange **DRIVE** (community/Red Cross organised) · blue **BLOODBANK** (hospital-posted slots)
+- **Filters**: All · Within 5 km (uses `navigator.geolocation` + Haversine distance, filters items with `lat`/`lng`)
+- **No blood type chips** — drives accept all types
+- **RSVP** routes to correct API (`createBooking` for drives, `bookSlot` for slots)
+- **Squad RSVP** button — bottom sheet with pre-written squad invite message; `navigator.share()` on mobile, clipboard fallback on desktop
+- **Host a Drive** CTA — 3-step modal (select group → pick time → review invite) to organise a community drive
 
 **ImpactPanel** (`ImpactPanel.jsx`):
 - Fetches retain stats (donations, patients reached, volume, badge tier, streak, annual history)
-- Streak pill badge in AppHeader right slot
 - Annual donation bar chart, HSA milestone progress (Bronze/Silver/Gold/Honorary), badge display
 
-**DonorDrivesPanel** (`DonorDrivesPanel.jsx`):
-- Blood type filter chips, capacity progress bar per drive, RSVP button with optimistic state
-
 **DonorPanel** (`DonorPanel.jsx`):
-- Fetches donor profile + retain stats (for streak)
 - Editable name / blood type / postal code (calls `PUT /donors/me`)
-- Streak visual: 8-block bar filled proportionally
-- Squads empty state (no API yet)
-- Donation stats grid (total, badge, last donated)
-- Sign-out button (mobile only — desktop sign-out is in the sidebar)
+- Streak visual, donation stats grid
+- Sign-out button (mobile only)
+
+**Auth** (`Auth.jsx`):
+- **Desktop**: dark left branding panel (tagline, feature bullets, blood type grid) + light right form panel
+- **Mobile**: native app layout — logo at top, fields in middle, action button anchored near bottom with safe-area padding
+- **Sign-up captures**: full name, email, password, blood type (chip selector), postal code
+- **After email verification**: auto sign-in → immediately calls `PUT /donors/me` with `{name, bloodType, postalCode}` so profile is pre-populated on first load
 
 ### HSA Admin Dashboard (desktop console)
 
-Layout (`Dashboard.jsx` → `AdminDashboard`):
+**Layout** (`Dashboard.jsx` → `AdminDashboard`):
 - 200px dark sidebar (`#1a1917`), BloodLine logo, nav items with red left border active state
-- Bottom status block: `MODE · PREDICT / OPS · GREEN · 3 ACTIVE`
-- Top header: breadcrumb + datetime + "Dr. R. Lim · HSA" + avatar circle
+- **Top-right profile button**: shows real name + initials from `getDonor()`, clickable to navigate to profile panel (not in sidebar nav)
 
 **OverviewPanel** — Forecast tab:
 - Full-bleed two-column layout (content + 300px right rail)
-- 4 KPI cards (types at risk, active surges, national status, total alerts) — live data
-- 8-type stock grid with tinted cells (colour = risk level) — live data
-- Right rail: recommended actions (built from live alert data), model confidence table, blood bank capacity mini-bars
+- 4 KPI cards (types at risk, active surges, national status, total alerts) — all from live Red Cross data
+- 8-type stock grid tinted by risk — sourced from Red Cross SG scrape (not DynamoDB units)
+- **14-day projected stock chart** (pure SVG, no library):
+  - 8 colour-coded lines, one per blood type
+  - Hover legend buttons OR hover lines to isolate a type
+  - Type-specific risk zone backgrounds appear on hover (AB- needs ≥88% to be "ok"; A+ only needs ≥55%)
+  - Threshold lines and zone labels ("OK", "LOW", "URGENT", "CRITICAL") at zone midpoints
+- **14-day shortage heatmap**:
+  - 8 rows × 14 columns, each cell coloured by risk level with projected %
+  - Isolates the hovered row when a type is hovered in the chart above (shared `hovered` state)
+- Right rail: recommended actions, model confidence table (describes method + refresh cadence), blood bank capacity mini-bars
 
 **SurgePanel** — Surge Mode tab:
-- Blood type selector: 8 clickable chips (not a select dropdown)
-- Geo tier: 3 visual checkbox-style cards (5km / 15km / island-wide)
-- Channel display (Push ✓, SMS ✓, WhatsApp, Email)
+- Blood type selector: 8 clickable chips
+- Geo tier: 3 visual cards (5km / 15km / island-wide)
 - Surge message preview + freetext override
 - Second approver ID field (backend enforces dual sign-off)
-- Right column: projected reach numbers (estimated per tier), blood bank capacity check, break-glass button with `BL.surge` 2px red border
-- Live alert monitor (last 3 active alerts with notified/responses/bookings counts)
+- Break-glass activate button
+- **Live alert monitor**: each active alert now has an **End** button → `POST /api/v1/surge/{alertId}/end` (HSA admin only)
 
-**DonorsPanel** — Donor pool tab:
-- 4 KPI funnel cards (Active / Dormant / At-risk / Lapsed) with tone-coloured backgrounds — live data
-- Segment donor table with filter tabs — live data from `GET /admin/donors/segments`
-- Blood type mix bar chart (static proportions, illustrative)
-- Retention campaigns table (static, illustrative)
+**DonorsPanel, DrivesPanel, DemandPanel** — unchanged from original
 
-**DrivesPanel** — Drive queue tab:
-- 2-column card grid; each card: REQUEST #, org, WHEN/POOL row, FORECAST FIT box
-- Decline / Ask edits / Approve action buttons — live calls to approve/reject Lambda
-- Cards removed from list on action (optimistic)
-
-**DemandPanel** — Hospital demand tab:
-- Form: hospital select, blood type, procedure count, date
-- Submits to `POST /admin/demand` → feeds into forecast model
-- Session submissions log
+**AdminProfilePanel** — My Profile (accessible via top-right header button):
+- Editable: full name, department, contact/extension → saved to DynamoDB via `PUT /donors/me`
+- Read-only: email (from JWT), staff ID (Cognito sub), role, access level
+- Avatar with initials
 
 ### Hospital Dashboard
 
 - `MySlotsPanel` — lists submitted hospital demand slots
-- `CreateSlotPanel` — form to create new demand slot
+- `CreateSlotPanel` — form to create new demand slot (goes live immediately as `status: "upcoming"`)
+- `CheckinPanel` — QR code scanner (html5-qrcode) + manual donor ID lookup + blood draw recording
+  - Uses `lookupDonor(donorId)` → `GET /api/v1/hospital/donor`
+  - Records donation via `recordDonation()` → `POST /api/v1/admin/donations`
+  - Double-stop bug fixed (firedRef guard prevents uncaught error on scanner unmount)
+- `SetupLocationPanel` — hospital staff set their location on first login
+
+---
+
+## Forecast Model (`predict/handler.py`)
+
+Replaced random walk heuristic with a deterministic seasonality model:
+
+- **Anchor**: current Red Cross SG percentage (scraped every 15 min, stored in DynamoDB)
+- **Per-blood-type net daily change** (calibrated from SG demographics):
+  - O-: −1.2%/day (universal donor, 6% of population → fastest depletion)
+  - O+: −0.4%/day
+  - B+: +0.05%/day (well-balanced supply/demand)
+  - AB-: −0.45%/day
+- **Day-of-week donation multipliers** (Singapore pattern): Mon 0.78× → Sat 1.20×, Sun 1.28×
+- **Singapore 2026 public holiday suppression**: 0.68× on holiday, 0.82× day before
+- **Campaign boost**: when % < 50% → 1.18×; when % < 30% → 1.45× (Red Cross activates appeals)
+- **Mean-reversion damping**: each type has an equilibrium %, pulled toward it at 4%/day
+- **Per-blood-type risk thresholds** (not global): A+ ok ≥ 55%, AB- ok ≥ 88% — calibrated from observed Red Cross status vs percentage
+- `/status` reads directly from blood_stock_table (live Red Cross data, not forecast)
+- `/forecast` reads from predictions_table (model output, refreshed hourly via EventBridge)
+
+---
+
+## Blood Stock Scraping (`hsa-sync/handler.py`)
+
+Scrapes `https://redcross.sg/` every 15 minutes:
+- Parses `.blood-grp-img` blocks (blood type from `h3`, status from `h5`)
+- **Extracts percentage from an HTML comment** `<!-- 79 -->` inside `.blood-grp-hover` — Red Cross embeds this for their SVG animation; we read it with BeautifulSoup's `Comment` node type
+- Falls back to `STATUS_FALLBACK` dict if comment is missing
+- Writes to DynamoDB `BloodStockTable` (PK: `bloodType`, SK: `updatedAt`)
+- Reads with `query(ScanIndexForward=False, Limit=1)` — table has composite key (HASH + RANGE)
 
 ---
 
@@ -176,11 +227,67 @@ HSA Admin fills blood type + geo tier + approver ID
 Donor app polls GET /api/v1/surge/monitor every 30s
     → returns { activeAlerts: [...] }
     → filter: show if bloodType matches donor OR geoTier === "island-wide"
-    → red surge banner renders on HomePanel with HSA message + "Book a slot now →" CTA
-    → when alert status changes from "active", banner disappears on next poll
+    → red surge banner renders on HomePanel; ineligible donors see "rally friends" instead of booking
+    → when alert ends (POST /api/v1/surge/{alertId}/end), banner disappears on next poll
 ```
 
-**Auth note:** `GET /surge/monitor` uses the default Cognito authorizer (all logged-in users). `POST /surge/activate` additionally checks `HSAAdmin` Cognito group in the Lambda handler.
+---
+
+## API Routes (full list)
+
+| Method | Path | Handler | Notes |
+|--------|------|---------|-------|
+| GET | `/api/v1/donors/me` | donors | Donor profile + eligibility |
+| PUT | `/api/v1/donors/me` | donors | Update name, bloodType, postalCode, department, phone |
+| GET | `/api/v1/predict/status` | predict | Current live risk per blood type (from Red Cross) |
+| GET | `/api/v1/predict/forecast` | predict | 14-day model output |
+| POST | `/api/v1/surge/activate` | surge | HSA admin only; dual sign-off |
+| POST | `/api/v1/surge/{alertId}/end` | surge | HSA admin only; ends active alert |
+| GET | `/api/v1/surge/monitor` | surge | All logged-in users; polls active alerts |
+| GET | `/api/v1/schedule/drives` | schedule | All upcoming drives |
+| POST | `/api/v1/schedule/drives` | schedule | Create a blood drive |
+| POST | `/api/v1/schedule/book` | schedule | Book a drive slot |
+| GET | `/api/v1/schedule/bookings` | schedule | My bookings (drives + slots combined) |
+| GET | `/api/v1/slots` | schedule | All available donation slots |
+| POST | `/api/v1/slots/{slotId}/book` | schedule | Book a specific slot |
+| GET | `/api/v1/hospital/drives` | schedule | Drives created by this hospital user |
+| GET | `/api/v1/blood-stock` | hsa-sync | Latest Red Cross SG blood stock |
+| GET | `/api/v1/retain/stats` | retain | Donor impact, badges, streak |
+| GET | `/api/v1/admin/donors/segments` | admin | Donor pool segmentation |
+| GET | `/api/v1/admin/drives/pending` | admin | Pending drive approvals |
+| POST | `/api/v1/admin/drives/{id}/approve` | admin | Approve a drive |
+| POST | `/api/v1/admin/drives/{id}/reject` | admin | Reject a drive |
+| GET | `/api/v1/admin/stock` | admin | Blood stock overview |
+| GET | `/api/v1/admin/alerts` | admin | All surge alerts |
+| POST | `/api/v1/admin/demand` | admin | Submit hospital demand signal |
+| POST | `/api/v1/admin/donations` | admin | Record completed donation |
+| GET | `/api/v1/hospital/donor` | admin | Look up donor by ID (hospital check-in) |
+| GET/PUT | `/api/v1/hospital/profile` | hospital | Hospital profile |
+| GET/POST | `/api/v1/hospital/slots` | hospital | Hospital's posted slots |
+| GET | `/api/v1/hospitals` | hospital | List all hospitals |
+| GET | `/api/v1/admin/diagnostics` | diagnostics | Health checks |
+| POST | `/api/v1/admin/trigger` | diagnostics | Manually invoke scheduled functions |
+
+---
+
+## DynamoDB Tables
+
+All tables use `PAY_PER_REQUEST` billing.
+
+| Table | PK | SK | Notes |
+|-------|----|----|-------|
+| donors | `donorId` | — | Stores name, bloodType, postalCode, department, phone, eligibility |
+| donations | `donorId` | `donatedAt` | Donation history |
+| predictions | `bloodType` | `forecastDate` | 14-day forecast output; TTL 16 days |
+| blood-stock | `bloodType` | `updatedAt` | Red Cross scrape history; **manually managed** (not CF) |
+| drives | `driveId` | — | Blood drives |
+| bookings | `donorId` | `driveId` | Drive bookings |
+| alerts | `alertId` | — | Surge alerts |
+| hospitals | `hospitalId` | — | Hospital profiles |
+| slots | `slotId` | — | Hospital-posted donation time slots |
+| slot-bookings | `donorId` | `slotId` | Slot bookings |
+
+> **Note:** `bloodline-blood-stock-dev` is **not managed by CloudFormation** — it was extracted due to a schema conflict during the CF update cycle. It must be manually recreated if deleted. Schema: `bloodType` (HASH) + `updatedAt` (RANGE).
 
 ---
 
@@ -201,66 +308,56 @@ All tokens in `tokens.js` as the `BL` object:
 | `BL.muted` | `#6b6862` | Secondary text |
 | `BL.need.ok/low/urgent/critical` | fg + bg pairs | Risk tinting |
 
-Prototype reference: `prototype/wireframe-tokens.jsx` — `W` card (borderRadius 6), `Tag` (mono 9px, letterSpacing 0.6), `Btn` (sm=28/md=36/lg=44), `BloodChip` (sm/md/lg/xl).
+---
+
+## Infrastructure Notes
+
+### CloudFormation Stack (`bloodline-dev`)
+
+- Stack is in `UPDATE_ROLLBACK_COMPLETE` state — a full `sam deploy` is still pending
+- **Lambdas directly updated** via `aws lambda update-function-code` (bypassing CF) for speed:
+  - `bloodline-donors-dev` — datetime timezone fix, json serialisation fix, department/phone fields
+  - `bloodline-admin-dev` — datetime timezone fix
+  - `bloodline-predict-dev` — complete new forecast model
+- **Pending full deploy** will apply:
+  - GatewayResponse resources (CORS on 4xx/5xx responses)
+  - EndSurge route (`POST /api/v1/surge/{alertId}/end`)
+  - ListMyBookings route (`GET /api/v1/schedule/bookings`)
+  - ListSlots + BookSlot routes (`GET /api/v1/slots`, `POST /api/v1/slots/{slotId}/book`)
+  - HospitalFunction (new Lambda for hospital profile/slots)
+  - DiagnosticsFunction
+
+### Python 3.13
+
+SAM build requires Python 3.13. Install via:
+```bash
+brew install python@3.13
+```
+Then verify: `python3.13 --version`
 
 ---
 
-## Failed Approaches / Known Issues
+## Known Issues / Current State
 
-| Issue | What happened | Current state |
-|-------|--------------|---------------|
-| Claude Design URL | `https://api.anthropic.com/v1/design/...` returned binary gzip, unreadable | Worked around using `prototype/*.jsx` files directly |
-| Mobile top bar | Initially kept a sticky "BLOODLINE" brand bar on mobile (36px) | Removed — mobile has no top bar; safe area via `max(16px, env(safe-area-inset-top))` container padding |
-| Surge banner not showing | `getSurgeMonitor` errors were silently swallowed; filter `(userType === "O-" && island-wide)` was backwards | Fixed: errors now `console.error`; island-wide surges show to ALL donors |
-| `onLogout` not reaching DonorPanel | Sign-out was in mobile top bar, Panel had no prop | Threaded `onLogout` through `PanelContent` → `DonorPanel`; desktop sign-out stays in sidebar |
-| OverviewPanel right rail | Needed full-bleed two-column layout but content wrapper had `padding: 24` | Used negative margin hack (`margin: "-20px -24px"`) + explicit height to break out of the wrapper |
-| Predict model | Backend uses random heuristic | Noted as `# Heuristic forecast — replace with SageMaker endpoint call post-hackathon` in `predict/handler.py` |
-| `POST /schedule/drives` missing | `createDrive()` in api.js pointed to a non-existent route; `CreateSlotPanel` in hospital portal was getting 404s | Added handler in `schedule/handler.py` + `CreateDrive` event in `template.yaml`. **Requires `sam deploy` to take effect.** |
-| `GET /hospital/drives` 403 (CORS preflight fail) | Route never existed in SAM template → API Gateway 403 on unknown routes kills CORS preflight | **Temp fix:** `MySlotsPanel` now uses `getDrives()` (shows all drives). Proper fix (filter by hospital user) added to `schedule/handler.py` + `template.yaml` — swap `MySlotsPanel` back to `getHospitalDrives()` after `sam deploy`. |
-| Donor profile page blank | `bloodline-donors-dev` table is empty → `getDonor()` 404 → `Promise.allSettled` swallows it → `donor` stays null → blank render | `DonorPanel` now catches 404 and shows initial setup form. First save uses `updateDonor` (DynamoDB `update_item` upserts) to create the record. Blood type set once at setup, immutable after. |
-| `GET /schedule/bookings` missing | No endpoint to fetch a donor's own bookings — home screen used localStorage (wrong source of truth) | Added `_list_my_bookings` to `schedule/handler.py` + route in `template.yaml`. Queries `bloodline-bookings-dev` by donorId, enriches with drive details, filters to upcoming only. **Requires `sam deploy`.** |
-
----
-
-## Current Open Issues / Bugs
-
-1. **Surge: blood bank capacity is hardcoded** — `SurgePanel.jsx` shows static blood bank fill bars. No API exists to fetch real capacity.
-2. **Donor squads** — `DonorPanel.jsx` shows a static empty state. No squads API exists yet.
-3. **Drive "Ask edits"** button in `DrivesPanel.jsx` does nothing (no backend endpoint for edit requests).
-4. **Retention campaigns** in `DonorsPanel.jsx` are static/illustrative — no campaigns API.
-5. **Blood type mix chart** in `DonorsPanel.jsx` uses hardcoded Singapore population percentages.
-6. **Surge banner console.log** — `[Surge] active alerts: [...]` is intentionally left in for debugging. Remove before demo if noisy.
-7. **Hospital dashboard** — largely unmatched to prototype; `MySlotsPanel` and `CreateSlotPanel` are functional but not styled to the prototype.
+| Issue | Status |
+|-------|--------|
+| Full `sam deploy` not yet completed | Stack in `UPDATE_ROLLBACK_COMPLETE`; Lambdas manually patched |
+| CORS on 4xx errors (Cognito auth rejection) | Template fix ready (GatewayResponse); needs deploy to take effect |
+| Drive "Ask edits" button | Does nothing; no backend endpoint |
+| Retention campaigns in DonorsPanel | Static/illustrative |
+| Blood type mix chart in DonorsPanel | Hardcoded SG population percentages |
+| Surge banner console.log | Intentional debug log; remove before demo |
+| Blood bank capacity in SurgePanel | Hardcoded; no API |
+| Squads | DonorPanel shows empty state; no squads API; Squad RSVP in Book tab uses share sheet only |
+| `bloodline-blood-stock-dev` table | Manually managed; not in CF stack |
 
 ---
 
-## Data Seeding (Still Needed for Demo)
+## Data Seeding (Needed for Demo)
 
-From the open task list:
-- [ ] Seed blood drives into DynamoDB (so the drives list isn't empty)
-- [ ] Seed donation history for the demo donor account (~15 donations) so Impact tab looks realistic
-- [ ] Fix `eligible` boolean field in DynamoDB donor records (some records may be missing it)
-- [ ] Update `README.md` — replace `xxxxxxxxxx` with actual API ID `3lnyz8rj83`
-
----
-
-## Immediate Next Steps
-
-### Priority 1 — Demo readiness
-1. **Seed data** — drives + donation history (see above). Without this, HomePanel shows empty state and ImpactPanel shows zeroes.
-2. **Test full surge flow end-to-end** — activate from HSA admin → confirm banner appears on donor screen within 30s. Check browser console for `[Surge]` log lines if it doesn't appear.
-3. **Verify donor profile has blood type** — if `donor.bloodType` is null (unfilled profile), the surge banner may not render for non-island-wide surges. Either seed the field in DynamoDB or have the donor fill in their profile first.
-
-### Priority 2 — Polish
-4. **Hospital dashboard styling** — match `hospital-screens.jsx` prototype (same pattern as HSA admin work).
-5. **Remove surge `console.log`** in `HomePanel.jsx` before demo.
-6. **Fix Drive "Ask edits"** button or hide it.
-
-### Priority 3 — Post-hackathon
-7. Replace `predict/handler.py` heuristic with a real Bayesian / SageMaker model.
-8. Wire SES email channel in `notify/handler.py` (currently only SNS/push is active).
-9. Build squads API (`/donors/squads`) and wire it to `DonorPanel`.
-10. Build campaigns API and wire it to `DonorsPanel`.
+- [ ] Seed blood drives + hospital slots into DynamoDB (Book tab currently empty without seeding)
+- [ ] Seed donation history for demo donor account (~15 donations) so Impact tab looks realistic
+- [ ] Verify donor profile records have `bloodType` set (surge banner requires this for non-island-wide surges)
 
 ---
 
