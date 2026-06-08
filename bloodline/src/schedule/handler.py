@@ -99,7 +99,7 @@ def _list_my_bookings(event: dict) -> dict:
             enriched.append({
                 **booking,
                 "drive": {
-                    "name": slot.get("location", ""),
+                    "name": slot.get("name") or slot.get("location", ""),
                     "location": slot.get("location", ""),
                     "date": slot.get("date", ""),
                     "startTime": slot.get("startTime", ""),

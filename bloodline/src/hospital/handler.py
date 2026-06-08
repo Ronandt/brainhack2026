@@ -124,6 +124,7 @@ def _create_slot(event: dict) -> dict:
     item = {
         "slotId": slot_id,
         "hospitalId": hid,
+        "name": (body.get("name") or "").strip(),
         "location": profile["location"],
         "date": date,
         "startTime": body.get("startTime", ""),

@@ -238,8 +238,13 @@ export default function HomePanel() {
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontFamily: BL.sans, fontSize: 14, color: BL.ink, fontWeight: 600 }}>
-                      {slot.location}
+                      {slot.name ?? slot.location}
                     </div>
+                    {slot.name && slot.location && (
+                      <div style={{ fontFamily: BL.sans, fontSize: 12, color: BL.muted, marginTop: 1 }}>
+                        {slot.location}
+                      </div>
+                    )}
                     <div style={{ fontFamily: BL.mono, fontSize: 10, color: BL.muted, marginTop: 3, letterSpacing: 0.3 }}>
                       {slot.date}{slot.startTime && ` · ${slot.startTime}`}{slot.endTime && `–${slot.endTime}`}
                     </div>
@@ -705,7 +710,10 @@ export default function HomePanel() {
               <>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                   <div style={{ flex: 1, minWidth: 0, marginRight: 12 }}>
-                    <div style={{ fontFamily: BL.sans, fontSize: 15, color: BL.ink, fontWeight: 600 }}>{nearestSlot.location}</div>
+                    <div style={{ fontFamily: BL.sans, fontSize: 15, color: BL.ink, fontWeight: 600 }}>{nearestSlot.name ?? nearestSlot.location}</div>
+                    {nearestSlot.name && nearestSlot.location && (
+                      <div style={{ fontFamily: BL.sans, fontSize: 12, color: BL.muted, marginTop: 2 }}>{nearestSlot.location}</div>
+                    )}
                     {nearestSlot.startTime && (
                       <div style={{ fontFamily: BL.mono, fontSize: 11, color: BL.muted, marginTop: 4, letterSpacing: 0.3 }}>
                         {nearestSlot.date} · {nearestSlot.startTime}
@@ -878,8 +886,13 @@ export default function HomePanel() {
           ) : nearestSlot ? (
             <div style={{ marginTop: 8, background: BL.card, border: `1px solid ${BL.hair}`, borderRadius: 6, padding: 14 }}>
               <div style={{ fontFamily: BL.sans, fontSize: 14, color: BL.ink, fontWeight: 600 }}>
-                {nearestSlot.location}
+                {nearestSlot.name ?? nearestSlot.location}
               </div>
+              {nearestSlot.name && nearestSlot.location && (
+                <div style={{ fontFamily: BL.sans, fontSize: 12, color: BL.muted, marginTop: 1 }}>
+                  {nearestSlot.location}
+                </div>
+              )}
               <div style={{ fontFamily: BL.mono, fontSize: 10, color: BL.muted, marginTop: 3, letterSpacing: 0.3 }}>
                 {nearestSlot.date}
                 {nearestSlot.startTime ? ` · ${nearestSlot.startTime}` : ""}

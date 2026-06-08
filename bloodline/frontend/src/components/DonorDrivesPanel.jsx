@@ -397,16 +397,16 @@ export default function DonorDrivesPanel() {
               {/* Header row */}
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontFamily: BL.sans, fontSize: 14, fontWeight: 600, color: BL.ink, marginBottom: 4 }}>
+                  <div style={{ fontFamily: BL.sans, fontSize: 14, fontWeight: 600, color: BL.ink, marginBottom: 2 }}>
                     {item.name ?? item.location}
                   </div>
-                  {drive.name && drive.location && (
+                  {item.name && item.location && (
                     <div style={{ fontFamily: BL.sans, fontSize: 12, color: BL.muted, marginBottom: 2 }}>
-                      {drive.location}
+                      {item.location}
                     </div>
                   )}
                   <div style={{ fontFamily: BL.mono, fontSize: 10, color: BL.muted, letterSpacing: 0.4 }}>
-                    {item.date}{item.startTime ? ` · ${item.startTime}` : ""} · {item.location}
+                    {item.date}{item.startTime ? ` · ${item.startTime}` : ""}
                   </div>
                 </div>
                 <div style={{ display: "flex", gap: 6, alignItems: "center", marginLeft: 10, flexShrink: 0 }}>
