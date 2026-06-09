@@ -2,6 +2,7 @@ import json
 import os
 import uuid
 from datetime import datetime, timezone
+from decimal import Decimal
 
 import boto3
 from boto3.dynamodb.conditions import Attr, Key
@@ -273,6 +274,12 @@ def _create_drive(event: dict) -> dict:
         "createdAt": now,
         "createdBy": creator_id,
     }
+    # Persist the picked map coordinates so the booking list can sort by proximity
+    # without re-geocoding the location name.
+    lat, lng = body.get("lat"), body.get("lng")
+    if lat is not None and lng is not None:
+        drive["lat"] = Decimal(str(lat))
+        drive["lng"] = Decimal(str(lng))
     drives_table.put_item(Item=drive)
     logger.info("Blood drive created", drive_id=drive_id, name=name)
     return _response(201, drive)
@@ -293,6 +300,9 @@ def _list_drives(event: dict) -> dict:
         for key in ("capacity", "booked", "availableSlots"):
             if key in drive:
                 drive[key] = int(drive[key])
+        for key in ("lat", "lng"):
+            if key in drive and drive[key] is not None:
+                drive[key] = float(drive[key])
 
     logger.info("Blood drives listed", count=len(drives))
     return _response(200, {"drives": drives, "count": len(drives)})

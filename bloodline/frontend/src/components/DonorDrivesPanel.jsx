@@ -27,6 +27,18 @@ const TYPE_BADGE = {
   slot:  { label: "BLOODBANK", bg: "#e0eeff", fg: "#1a5cbf" },
 };
 
+// Approximate coordinates for the fixed Singapore blood banks. Slots only carry a
+// location name, so we map the name → coords to compute proximity for booking.
+const BLOODBANK_COORDS = {
+  "Bloodbank@HSA":          { lat: 1.2812, lng: 103.8389 },
+  "Bloodbank@Dhoby Ghaut":  { lat: 1.2993, lng: 103.8455 },
+  "Bloodbank@Woodlands":    { lat: 1.4360, lng: 103.7865 },
+  "Bloodbank@Westgate":     { lat: 1.3338, lng: 103.7430 },
+  "Bloodbank@One Punggol":  { lat: 1.4050, lng: 103.9020 },
+  "HSA Bloodbank":          { lat: 1.2812, lng: 103.8389 },
+  "Singapore Red Cross":    { lat: 1.2966, lng: 103.8485 },
+};
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function haversineKm(lat1, lon1, lat2, lon2) {
@@ -34,6 +46,15 @@ function haversineKm(lat1, lon1, lat2, lon2) {
   const dLat = (lat2 - lat1) * r, dLon = (lon2 - lon1) * r;
   const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * r) * Math.cos(lat2 * r) * Math.sin(dLon / 2) ** 2;
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+// Coordinates for a session: an explicit lat/lng, a known blood bank, or a
+// geocoded drive location name (resolved asynchronously into geoCache).
+function resolveCoords(item, geoCache = {}) {
+  if (item.lat != null && item.lng != null) return { lat: Number(item.lat), lng: Number(item.lng) };
+  const bank = BLOODBANK_COORDS[item.location];
+  if (bank) return bank;
+  return geoCache[item.location] || null;
 }
 
 function pickRandom(items) { return items[Math.floor(Math.random() * items.length)]; }
@@ -383,7 +404,7 @@ function HostDriveBubble({ onInviteSent }) {
 
   function send()  {
     if (!selectedDate || !selectedTime) return;
-    onInviteSent({ driveId: `hosted-${Date.now()}`, _type: "drive", name: `${group} blood drive`, date: selectedDateLabel, startTime: selectedTime, location: group, booked: 0, capacity: TARGET_RSVPS });
+    onInviteSent({ driveId: `hosted-${Date.now()}`, _type: "drive", name: `${group} blood drive`, date: selectedDateLabel, startTime: selectedTime, location: group, lat: selectedLocation?.lat, lng: selectedLocation?.lng, booked: 0, capacity: TARGET_RSVPS });
     close();
   }
 
@@ -589,6 +610,7 @@ export default function DonorDrivesPanel() {
   const [locationFilter, setLocationFilter] = useState("all"); // "all" | "nearby"
   const [userCoords,   setUserCoords]   = useState(null);
   const [locError,     setLocError]     = useState("");
+  const [geoCache,     setGeoCache]     = useState({}); // location name → {lat,lng} | null
   const [bookingState, setBookingState] = useState({});
   const [booked,       setBooked]       = useState({}); // { [id]: "slot" | "drive" } — ALL of the donor's active bookings
   const [squadItem,    setSquadItem]    = useState(null);
@@ -596,6 +618,15 @@ export default function DonorDrivesPanel() {
   useEffect(() => {
     loadAll();
     refreshBookings();
+    // Quietly grab the donor's location so sessions sort by proximity by default.
+    // If denied/unavailable, the list just falls back to date order.
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        pos => setUserCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+        () => {},
+        { enableHighAccuracy: false, timeout: 8000, maximumAge: 300000 }
+      );
+    }
   }, []);
 
   // Track every booking the donor has, not just the first — otherwise already-booked
@@ -633,6 +664,34 @@ export default function DonorDrivesPanel() {
     }
   }
 
+  // Geocode drive location names (those not already placed by lat/lng or a known
+  // blood bank) so drives also get a distance and sort by proximity.
+  useEffect(() => {
+    const pending = [...new Set(
+      items
+        .filter(it => it.location && it.lat == null && it.lng == null && !BLOODBANK_COORDS[it.location])
+        .map(it => it.location)
+    )].filter(loc => !(loc in geoCache));
+    if (pending.length === 0) return;
+
+    let cancelled = false;
+    (async () => {
+      for (const loc of pending) {
+        try {
+          const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=sg&q=${encodeURIComponent(loc)}`);
+          const data = res.ok ? await res.json() : [];
+          if (cancelled) return;
+          const hit = data[0];
+          setGeoCache(prev => ({ ...prev, [loc]: hit ? { lat: Number(hit.lat), lng: Number(hit.lon) } : null }));
+        } catch {
+          if (cancelled) return;
+          setGeoCache(prev => ({ ...prev, [loc]: null }));
+        }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [items, geoCache]);
+
   function requestNearby() {
     if (!navigator.geolocation) { setLocError("Geolocation not supported by your browser."); return; }
     setLocError("");
@@ -651,9 +710,29 @@ export default function DonorDrivesPanel() {
     ? items
     : items.filter(item => item._type === sessionTab);
 
-  const displayItems = locationFilter === "nearby" && userCoords
-    ? tabItems.filter(item => item.lat != null && item.lng != null && haversineKm(userCoords.lat, userCoords.lng, item.lat, item.lng) <= 5)
-    : tabItems;
+  // Attach a distance (km) to each session from the donor's location, resolving
+  // bloodbank slots via their location name.
+  const itemsWithDistance = tabItems.map(item => {
+    const coords = resolveCoords(item, geoCache);
+    const distanceKm = (userCoords && coords)
+      ? haversineKm(userCoords.lat, userCoords.lng, coords.lat, coords.lng)
+      : null;
+    return { ...item, _distanceKm: distanceKm };
+  });
+
+  const filteredItems = locationFilter === "nearby" && userCoords
+    ? itemsWithDistance.filter(item => item._distanceKm != null && item._distanceKm <= 5)
+    : itemsWithDistance;
+
+  // Sort by proximity (nearest first) once we know where the donor is; sessions
+  // with no resolvable location fall to the bottom. Otherwise keep date order.
+  const displayItems = userCoords
+    ? [...filteredItems].sort((a, b) => {
+        if (a._distanceKm == null) return 1;
+        if (b._distanceKm == null) return -1;
+        return a._distanceKm - b._distanceKm;
+      })
+    : filteredItems;
 
   const sessionCounts = useMemo(() => ({
     all: items.length,
@@ -822,6 +901,11 @@ export default function DonorDrivesPanel() {
                   )}
                   <div style={{ fontFamily: BL.mono, fontSize: 10, color: BL.muted, letterSpacing: 0.4 }}>
                     {item.date}{item.startTime ? ` · ${item.startTime}` : ""}
+                    {item._distanceKm != null && (
+                      <span style={{ color: BL.red, fontWeight: 600 }}>
+                        {" · "}{item._distanceKm < 1 ? `${Math.round(item._distanceKm * 1000)} m` : `${item._distanceKm.toFixed(1)} km`} away
+                      </span>
+                    )}
                   </div>
                 </div>
                 <div style={{ display: "flex", gap: 6, alignItems: "center", marginLeft: 10, flexShrink: 0 }}>

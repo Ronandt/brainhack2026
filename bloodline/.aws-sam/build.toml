@@ -5,7 +5,7 @@ codeuri = "C:\\Users\\decla\\brainhack\\brainhack2026\\bloodline\\src\\donors"
 runtime = "python3.13"
 architecture = "x86_64"
 handler = "handler.lambda_handler"
-manifest_hash = "d07d2a0b977e4799d7fdef8afc6c1eda"
+manifest_hash = "e4b6ebf9a0735375c848362369b7c85d"
 packagetype = "Zip"
 functions = ["DonorFunction"]
 
@@ -14,7 +14,7 @@ codeuri = "C:\\Users\\decla\\brainhack\\brainhack2026\\bloodline\\src\\predict"
 runtime = "python3.13"
 architecture = "x86_64"
 handler = "handler.lambda_handler"
-manifest_hash = "d07d2a0b977e4799d7fdef8afc6c1eda"
+manifest_hash = "e4b6ebf9a0735375c848362369b7c85d"
 packagetype = "Zip"
 functions = ["PredictFunction"]
 
@@ -23,7 +23,7 @@ codeuri = "C:\\Users\\decla\\brainhack\\brainhack2026\\bloodline\\src\\surge"
 runtime = "python3.13"
 architecture = "x86_64"
 handler = "handler.lambda_handler"
-manifest_hash = "d07d2a0b977e4799d7fdef8afc6c1eda"
+manifest_hash = "e4b6ebf9a0735375c848362369b7c85d"
 packagetype = "Zip"
 functions = ["SurgeFunction"]
 
@@ -32,7 +32,7 @@ codeuri = "C:\\Users\\decla\\brainhack\\brainhack2026\\bloodline\\src\\notify"
 runtime = "python3.13"
 architecture = "x86_64"
 handler = "handler.lambda_handler"
-manifest_hash = "d07d2a0b977e4799d7fdef8afc6c1eda"
+manifest_hash = "e4b6ebf9a0735375c848362369b7c85d"
 packagetype = "Zip"
 functions = ["NotifyFunction"]
 
@@ -41,7 +41,7 @@ codeuri = "C:\\Users\\decla\\brainhack\\brainhack2026\\bloodline\\src\\schedule"
 runtime = "python3.13"
 architecture = "x86_64"
 handler = "handler.lambda_handler"
-manifest_hash = "d07d2a0b977e4799d7fdef8afc6c1eda"
+manifest_hash = "e4b6ebf9a0735375c848362369b7c85d"
 packagetype = "Zip"
 functions = ["ScheduleFunction"]
 
@@ -50,7 +50,7 @@ codeuri = "C:\\Users\\decla\\brainhack\\brainhack2026\\bloodline\\src\\retain"
 runtime = "python3.13"
 architecture = "x86_64"
 handler = "handler.lambda_handler"
-manifest_hash = "d07d2a0b977e4799d7fdef8afc6c1eda"
+manifest_hash = "e4b6ebf9a0735375c848362369b7c85d"
 packagetype = "Zip"
 functions = ["RetainFunction"]
 
@@ -59,7 +59,7 @@ codeuri = "C:\\Users\\decla\\brainhack\\brainhack2026\\bloodline\\src\\hsa-sync"
 runtime = "python3.13"
 architecture = "x86_64"
 handler = "handler.lambda_handler"
-manifest_hash = "97fba29d08369b14cbde6911006b2678"
+manifest_hash = "ae20d75182c76ec375fdde789cd3fb2c"
 packagetype = "Zip"
 functions = ["HSASyncFunction"]
 
@@ -68,7 +68,7 @@ codeuri = "C:\\Users\\decla\\brainhack\\brainhack2026\\bloodline\\src\\admin"
 runtime = "python3.13"
 architecture = "x86_64"
 handler = "handler.lambda_handler"
-manifest_hash = "d07d2a0b977e4799d7fdef8afc6c1eda"
+manifest_hash = "e4b6ebf9a0735375c848362369b7c85d"
 packagetype = "Zip"
 functions = ["AdminFunction"]
 
@@ -77,7 +77,7 @@ codeuri = "C:\\Users\\decla\\brainhack\\brainhack2026\\bloodline\\src\\hospital"
 runtime = "python3.13"
 architecture = "x86_64"
 handler = "handler.lambda_handler"
-manifest_hash = "d07d2a0b977e4799d7fdef8afc6c1eda"
+manifest_hash = "e4b6ebf9a0735375c848362369b7c85d"
 packagetype = "Zip"
 functions = ["HospitalFunction"]
 
@@ -86,7 +86,7 @@ codeuri = "C:\\Users\\decla\\brainhack\\brainhack2026\\bloodline\\src\\diagnosti
 runtime = "python3.13"
 architecture = "x86_64"
 handler = "handler.lambda_handler"
-manifest_hash = "d07d2a0b977e4799d7fdef8afc6c1eda"
+manifest_hash = "e4b6ebf9a0735375c848362369b7c85d"
 packagetype = "Zip"
 functions = ["DiagnosticsFunction"]
 
