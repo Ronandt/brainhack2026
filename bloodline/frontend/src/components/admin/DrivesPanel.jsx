@@ -98,14 +98,19 @@ export default function DrivesPanel() {
                     {drive.location}
                   </div>
                 </div>
-                <Tag color={BL.need[need].fg} bg={BL.need[need].bg}>{BL.need[need].label} region</Tag>
+                <div style={{ display: "grid", justifyItems: "end", gap: 4 }}>
+                  <Tag color={BL.need[need].fg} bg={BL.need[need].bg}>{BL.need[need].label} region</Tag>
+                  <Tag color={BL.red} bg={BL.redSoft}>Pending approval</Tag>
+                </div>
               </div>
 
               {/* When / Pool */}
               <div style={{ display: "flex", gap: 16, marginTop: 12 }}>
                 <div style={{ flex: 1 }}>
                   <Tag>When</Tag>
-                  <div style={{ fontFamily: BL.mono, fontSize: 11, color: BL.ink, marginTop: 3 }}>{drive.date}</div>
+                  <div style={{ fontFamily: BL.mono, fontSize: 11, color: BL.ink, marginTop: 3 }}>
+                    {drive.date}{drive.startTime ? ` · ${drive.startTime}` : ""}
+                  </div>
                 </div>
                 <div style={{ flex: 1 }}>
                   <Tag>Pool</Tag>
@@ -116,6 +121,23 @@ export default function DrivesPanel() {
                     )}
                   </div>
                 </div>
+              </div>
+
+              <div style={{ marginTop: 10, display: "grid", gap: 6 }}>
+                <div>
+                  <Tag>Blood types</Tag>
+                  <div style={{ fontFamily: BL.sans, fontSize: 12, color: BL.ink, marginTop: 3 }}>
+                    {drive.acceptedBloodTypes?.length > 0 ? drive.acceptedBloodTypes.join(", ") : "Any blood type"}
+                  </div>
+                </div>
+                {drive.notes && (
+                  <div>
+                    <Tag>Request notes</Tag>
+                    <div style={{ fontFamily: BL.sans, fontSize: 12, color: BL.muted, marginTop: 3, lineHeight: 1.4 }}>
+                      {drive.notes}
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Forecast fit */}

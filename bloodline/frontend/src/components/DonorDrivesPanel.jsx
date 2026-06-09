@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from "react";
-import { getDrives, getSlots, createBooking, bookSlot, getMyBookings } from "../api";
+import { getDrives, getSlots, createBooking, bookSlot, getMyBookings, createDrive } from "../api";
 import { BL } from "../tokens";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -255,7 +255,7 @@ function SquadRsvpModal({ item, onClose }) {
 
 // ── Host a Drive bubble ───────────────────────────────────────────────────────
 
-function HostDriveBubble({ onInviteSent }) {
+function HostDriveBubble() {
   const [show,         setShow]         = useState(false);
   const [step,         setStep]         = useState("group");
   const [group,        setGroup]        = useState("");
@@ -268,6 +268,7 @@ function HostDriveBubble({ onInviteSent }) {
   const [locationResults, setLocationResults] = useState([]);
   const [locationStatus, setLocationStatus] = useState("");
   const [locationLoading, setLocationLoading] = useState(false);
+  const [submitState,  setSubmitState]  = useState({});
   const inviteStatus    = useMemo(() => pickRandom(INVITE_STATUSES), []);
   const totalMembers    = useMemo(() => 96 + Math.floor(Math.random() * 65), []);
   const activeLocation  = selectedLocation ?? mapCenter;
@@ -291,7 +292,7 @@ function HostDriveBubble({ onInviteSent }) {
     );
   }, [show, selectedLocation]);
 
-  function close() { setShow(false); setStep("group"); }
+  function close() { setShow(false); setStep("group"); setSubmitState({}); }
   function goBack() {
     if (step === "review") { setStep("blood"); return; }
     if (step === "blood") { setStep("time"); return; }
@@ -381,10 +382,23 @@ function HostDriveBubble({ onInviteSent }) {
     }
   }
 
-  function send()  {
+  async function send()  {
     if (!selectedDate || !selectedTime) return;
-    onInviteSent({ driveId: `hosted-${Date.now()}`, _type: "drive", name: `${group} blood drive`, date: selectedDateLabel, startTime: selectedTime, location: group, booked: 0, capacity: TARGET_RSVPS });
-    close();
+    setSubmitState({ loading: true });
+    try {
+      await createDrive({
+        name: `${group} blood drive`,
+        location: group,
+        date: selectedDate,
+        startTime: selectedTime,
+        capacity: TARGET_RSVPS,
+        acceptedBloodTypes: selectedBloodTypes.length > 0 ? selectedBloodTypes : BLOOD_TYPES,
+        notes: `Donor-hosted drive request. Inviting ${selectedBloodTypeLabel} donors.`,
+      });
+      setSubmitState({ done: true });
+    } catch (e) {
+      setSubmitState({ error: e.message });
+    }
   }
 
   return (
@@ -568,8 +582,20 @@ function HostDriveBubble({ onInviteSent }) {
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
                   <button onClick={() => setStep("blood")} style={{ padding: "10px 12px", background: "#fff", color: BL.ink, border: `1px solid ${BL.ink}`, borderRadius: 6, fontFamily: BL.sans, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>Edit</button>
-                  <button onClick={send} style={{ padding: "10px 12px", background: BL.ink, color: "#fff", border: `1px solid ${BL.ink}`, borderRadius: 6, fontFamily: BL.sans, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>Send Invite</button>
+                  <button disabled={submitState.loading || submitState.done} onClick={send} style={{ padding: "10px 12px", background: submitState.done ? BL.need.ok.fg : BL.ink, color: "#fff", border: `1px solid ${submitState.done ? BL.need.ok.fg : BL.ink}`, borderRadius: 6, fontFamily: BL.sans, fontSize: 13, fontWeight: 700, cursor: submitState.loading || submitState.done ? "default" : "pointer", opacity: submitState.loading ? 0.6 : 1 }}>
+                    {submitState.loading ? "Submitting…" : submitState.done ? "Submitted" : "Send Invite"}
+                  </button>
                 </div>
+                {submitState.done && (
+                  <div style={{ marginTop: 10, background: BL.need.ok.bg, border: `1px solid ${BL.need.ok.fg}44`, borderRadius: 6, padding: "9px 10px", fontFamily: BL.sans, fontSize: 12, color: BL.ink, lineHeight: 1.4 }}>
+                    Drive sent to the HSA admin queue. Donors will see it under Book a session after approval.
+                  </div>
+                )}
+                {submitState.error && (
+                  <div style={{ marginTop: 10, fontFamily: BL.sans, fontSize: 12, color: BL.need.critical.fg }}>
+                    {submitState.error}
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -671,8 +697,6 @@ export default function DonorDrivesPanel() {
 
   function cancelBooking() { setBookedId(null); setBookingState({}); }
 
-  function addHostedDrive(drive) { setItems(prev => [drive, ...prev]); }
-
   return (
     <div>
       <AppHeader
@@ -750,7 +774,7 @@ export default function DonorDrivesPanel() {
       {/* Host a Drive CTA */}
       {sessionTab !== "slot" && (
         <div style={{ marginBottom: 18 }}>
-          <HostDriveBubble onInviteSent={addHostedDrive} />
+          <HostDriveBubble />
         </div>
       )}
 

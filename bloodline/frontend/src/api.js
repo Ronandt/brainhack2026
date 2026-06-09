@@ -3,14 +3,19 @@ import { API_URL } from "./config";
 
 async function request(path, options = {}) {
   const token = await getToken();
-  const res = await fetch(`${API_URL}${path}`, {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: token } : {}),
-      ...options.headers,
-    },
-  });
+  let res;
+  try {
+    res = await fetch(`${API_URL}${path}`, {
+      ...options,
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: token } : {}),
+        ...options.headers,
+      },
+    });
+  } catch (e) {
+    throw new Error(`Unable to reach API (${API_URL}${path}). Check network, CORS, and whether the backend is deployed.`);
+  }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
   return data;
