@@ -49,6 +49,17 @@ def _is_hospital_or_admin(event):
 
 @logger.inject_lambda_context
 def lambda_handler(event: dict, context: LambdaContext) -> dict:
+    try:
+        return _dispatch(event)
+    except Exception:
+        # Always return a CORS-headed error — an unhandled exception otherwise
+        # escapes to API Gateway as a bare 500 with no CORS header, which the
+        # browser misreports as a CORS failure.
+        logger.exception("Unhandled error in admin handler")
+        return _response(500, {"error": "Internal server error"})
+
+
+def _dispatch(event: dict) -> dict:
     path = event.get("path", "")
     method = event["httpMethod"]
 
@@ -92,7 +103,7 @@ def _donor_segments():
     """Segment donor pool: active / at-risk / dormant / lapsed."""
     result = donors_table.scan()
     donors = result.get("Items", [])
-    today = datetime.utcnow()
+    today = datetime.now(timezone.utc)
 
     segments = {"active": [], "atRisk": [], "dormant": [], "lapsed": [], "neverDonated": []}
 
@@ -109,7 +120,17 @@ def _donor_segments():
             segments["neverDonated"].append(entry)
             continue
 
-        days_since = (today - datetime.fromisoformat(last)).days
+        # Stored dates may be tz-aware (…+00:00) or naive — normalise to UTC so the
+        # subtraction below can't raise "can't subtract offset-naive and offset-aware".
+        try:
+            last_dt = datetime.fromisoformat(last)
+        except ValueError:
+            segments["neverDonated"].append(entry)
+            continue
+        if last_dt.tzinfo is None:
+            last_dt = last_dt.replace(tzinfo=timezone.utc)
+
+        days_since = (today - last_dt).days
         if days_since <= ELIGIBILITY_DAYS:
             segments["active"].append(entry)
         elif days_since <= AT_RISK_DAYS:
@@ -144,7 +165,7 @@ def _approve_drive(drive_id, event):
         ExpressionAttributeValues={
             ":s": "upcoming",
             ":a": approver,
-            ":t": datetime.utcnow().isoformat(),
+            ":t": datetime.now(timezone.utc).isoformat(),
         },
     )
     logger.info("Drive approved", drive_id=drive_id, approver=approver)
@@ -175,7 +196,7 @@ def _blood_stock_overview():
             "units": int(items[0]["units"]) if items else 0,
             "updatedAt": items[0].get("updatedAt") if items else None,
         }
-    return _response(200, {"stock": stock, "asOf": datetime.utcnow().isoformat()})
+    return _response(200, {"stock": stock, "asOf": datetime.now(timezone.utc).isoformat()})
 
 
 def _all_alerts():
@@ -222,7 +243,7 @@ def _traffic_incidents():
     return _response(200, {
         "incidents": incidents,
         "count": len(incidents),
-        "asOf": datetime.utcnow().isoformat(),
+        "asOf": datetime.now(timezone.utc).isoformat(),
     })
 
 
@@ -243,7 +264,7 @@ def _submit_hospital_demand(event):
         "forecastDate": f"demand#{date}#{hospital}",
         "procedureCount": procedure_count,
         "hospital": hospital,
-        "submittedAt": datetime.utcnow().isoformat(),
+        "submittedAt": datetime.now(timezone.utc).isoformat(),
         "type": "hospital_demand",
     })
 
@@ -266,8 +287,9 @@ def _lookup_donor(event: dict) -> dict:
     # Compute eligibility
     last_donated = donor.get("lastDonatedAt")
     if last_donated:
-        from datetime import timedelta
         last_date = datetime.fromisoformat(last_donated)
+        if last_date.tzinfo is None:
+            last_date = last_date.replace(tzinfo=timezone.utc)
         next_eligible = last_date + timedelta(days=ELIGIBILITY_DAYS)
         days_remaining = max(0, (datetime.now(timezone.utc) - next_eligible).days * -1)
         eligible = days_remaining == 0
@@ -295,7 +317,7 @@ def _record_donation(event: dict) -> dict:
     blood_type = body.get("bloodType")
     volume_ml = int(body.get("volumeMl", 450))
     facility = body.get("facility", "HSA Bloodbank")
-    donated_at = body.get("donatedAt", datetime.utcnow().isoformat())
+    donated_at = body.get("donatedAt", datetime.now(timezone.utc).isoformat())
 
     if not donor_id or not blood_type:
         return _response(400, {"error": "donorId and bloodType are required"})
@@ -311,7 +333,7 @@ def _record_donation(event: dict) -> dict:
         "donatedAt": donated_at,
         "facility": facility,
         "recordedBy": staff_id,
-        "createdAt": datetime.utcnow().isoformat(),
+        "createdAt": datetime.now(timezone.utc).isoformat(),
     })
 
     # Update donor's lastDonatedAt so eligibility recalculates correctly

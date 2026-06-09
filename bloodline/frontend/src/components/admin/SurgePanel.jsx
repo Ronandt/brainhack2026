@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { activateSurge, endSurge, getAllAlerts, getDonorSegments } from "../../api";
 import { BL } from "../../tokens";
+import SurgeReachMap from "./SurgeReachMap";
 
 const BLOOD_TYPES = ["O-", "O+", "A-", "A+", "B-", "B+", "AB-", "AB+"];
 
@@ -268,6 +269,9 @@ export default function SurgePanel() {
           {/* Projected reach */}
           <W pad={20} style={{ marginBottom: 14 }}>
             <Tag>Step 2 · Projected reach</Tag>
+            <div style={{ marginTop: 12 }}>
+              <SurgeReachMap geoTier={geoTier} notified={reach.notified} bloodLabel={bloodLabel} />
+            </div>
             <div style={{ marginTop: 12 }}>
               <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
                 <span style={{ fontFamily: BL.mono, fontSize: 32, color: BL.ink, fontWeight: 600, letterSpacing: -0.6 }}>
