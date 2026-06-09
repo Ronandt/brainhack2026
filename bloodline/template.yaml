@@ -33,6 +33,19 @@ Parameters:
     Type: String
     Default: ""
     Description: SES-verified "from" address used for surge alert emails (leave blank to disable email)
+  AppUrl:
+    Type: String
+    Default: ""
+    Description: Public Bloodline donor-app URL used as the call-to-action link in surge alert emails
+  EnableSms:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: Send surge alerts by SMS via SNS. Billable + requires SNS SMS production access and (for SG) a registered Sender ID. Off by default.
+  SmsSenderId:
+    Type: String
+    Default: ""
+    Description: Optional SNS SMS Sender ID for outbound surge texts (Singapore requires a registered Sender ID for reliable delivery)
   LtaAccountKey:
     Type: String
     Default: "SGVWAY+7SwSN1dTLV9kN4Q=="
@@ -469,6 +482,9 @@ Resources:
       Environment:
         Variables:
           SENDER_EMAIL: !Ref SenderEmail
+          APP_URL: !Ref AppUrl
+          SMS_ENABLED: !Ref EnableSms
+          SMS_SENDER_ID: !Ref SmsSenderId
       Policies:
         - DynamoDBReadPolicy:
             TableName: !Ref DonorsTable
@@ -481,6 +497,12 @@ Resources:
               Action:
                 - ses:SendEmail
                 - ses:SendRawEmail
+              Resource: "*"
+            # SMS publish targets a phone number, not a topic ARN, so it can't be
+            # scoped to a resource — "*" is required for sns:Publish to a PhoneNumber.
+            - Effect: Allow
+              Action:
+                - sns:Publish
               Resource: "*"
       Events:
         SurgeSNSTrigger:

@@ -1,17 +1,26 @@
-import { useState, useEffect, useMemo } from "react";
-import { getDrives, getSlots, createBooking, bookSlot, getMyBookings } from "../api";
+import { useState, useEffect, useMemo, useRef } from "react";
+import { getDrives, getSlots, createBooking, bookSlot, cancelSlotBooking, getMyBookings } from "../api";
 import { BL } from "../tokens";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const BLOOD_TYPES   = ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"];
-const MOBILISE_OPTIONS = ["DBS - Group Tec", "NUS Alumni - CompSci", "Tampines East RC"];
 const INVITE_STATUSES  = ["Critical", "High", "Low"];
 const ORGANIZER_NAME   = "Bryan";
 const TARGET_RSVPS     = 18;
-const PER_PAGE         = 5;
-const SLOT_WINDOWS     = { breakfast: [7, 8, 9], lunch: [11, 12, 13], "after work": [17, 18, 19] };
-const SLOT_LABELS      = Object.keys(SLOT_WINDOWS);
+const DEFAULT_MAP_CENTER = { lat: 1.3521, lng: 103.8198 };
+const SESSION_TABS     = [
+  { id: "all", label: "All" },
+  { id: "drive", label: "Drives" },
+  { id: "slot", label: "Bloodbank" },
+];
+const MAPCN_STYLE_URL   = "https://tiles.openfreemap.org/styles/liberty";
+const MAPLIBRE_JS_URL   = "https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js";
+const MAPLIBRE_CSS_URL  = "https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css";
+const DONATION_TIME_OPTIONS = [
+  "09:00", "09:30", "10:00", "10:30", "11:00",
+  "14:00", "14:30", "15:00", "15:30", "16:00", "16:30", "17:00",
+];
 
 const TYPE_BADGE = {
   drive: { label: "DRIVE", bg: "#fff4e0", fg: "#b86a00" },
@@ -28,23 +37,37 @@ function haversineKm(lat1, lon1, lat2, lon2) {
 }
 
 function pickRandom(items) { return items[Math.floor(Math.random() * items.length)]; }
-function fmt(h, m = 0)    { return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`; }
-
-function buildTimeOptions() {
-  return Array.from({ length: 10 }, (_, i) => {
-    const date = new Date();
-    date.setDate(date.getDate() + 1 + Math.floor(Math.random() * 5));
-    const label = pickRandom(SLOT_LABELS);
-    const hour  = pickRandom(SLOT_WINDOWS[label]);
-    const dist  = (Math.random() * 11 + 1).toFixed(1);
-    const site  = Math.random() > 0.5 ? "MOBILE UNIT ON SITE" : `BLOODBANK@HSA ${dist}KM`;
-    return {
-      id: `${date.toISOString().slice(0, 10)}-${label}-${hour}-${i}`,
-      dateLabel: date.toLocaleDateString("en-SG", { weekday: "short", day: "2-digit", month: "short" }),
-      time: `${label} • ${fmt(hour)}–${fmt(hour + 2, 30)}`,
-      site,
-    };
+function coordLabel(lat, lng) { return `${lat.toFixed(5)}, ${lng.toFixed(5)}`; }
+function nextDateValue() {
+  const date = new Date();
+  date.setDate(date.getDate() + 1);
+  return date.toISOString().slice(0, 10);
+}
+function dateLabel(dateValue) {
+  if (!dateValue) return "";
+  return new Date(`${dateValue}T00:00:00`).toLocaleDateString("en-SG", {
+    weekday: "short",
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
   });
+}
+function timeLabel(timeValue) {
+  if (!timeValue) return "";
+  return timeValue;
+}
+function streetLabel(result, fallback) {
+  const a = result?.address ?? {};
+  return a.road
+    ?? a.pedestrian
+    ?? a.footway
+    ?? a.cycleway
+    ?? a.neighbourhood
+    ?? a.suburb
+    ?? a.city
+    ?? result?.name
+    ?? result?.display_name
+    ?? fallback;
 }
 
 // ── Small components ──────────────────────────────────────────────────────────
@@ -70,11 +93,124 @@ function Tag({ children, color, bg }) {
   );
 }
 
+let maplibrePromise;
+
+function loadMaplibre() {
+  if (window.maplibregl) return Promise.resolve(window.maplibregl);
+  if (maplibrePromise) return maplibrePromise;
+
+  maplibrePromise = new Promise((resolve, reject) => {
+    if (!document.querySelector(`link[href="${MAPLIBRE_CSS_URL}"]`)) {
+      const link = document.createElement("link");
+      link.rel = "stylesheet";
+      link.href = MAPLIBRE_CSS_URL;
+      document.head.appendChild(link);
+    }
+
+    const existing = document.querySelector(`script[src="${MAPLIBRE_JS_URL}"]`);
+    if (existing) {
+      existing.addEventListener("load", () => resolve(window.maplibregl), { once: true });
+      existing.addEventListener("error", reject, { once: true });
+      return;
+    }
+
+    const script = document.createElement("script");
+    script.src = MAPLIBRE_JS_URL;
+    script.async = true;
+    script.onload = () => resolve(window.maplibregl);
+    script.onerror = reject;
+    document.body.appendChild(script);
+  });
+
+  return maplibrePromise;
+}
+
+function MapcnLocationMap({ location, onSelect }) {
+  const containerRef = useRef(null);
+  const mapRef = useRef(null);
+  const markerRef = useRef(null);
+  const onSelectRef = useRef(onSelect);
+  const [mapError, setMapError] = useState("");
+
+  useEffect(() => { onSelectRef.current = onSelect; }, [onSelect]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    loadMaplibre()
+      .then(maplibregl => {
+        if (cancelled || !containerRef.current || mapRef.current) return;
+
+        const map = new maplibregl.Map({
+          container: containerRef.current,
+          style: MAPCN_STYLE_URL,
+          center: [location.lng, location.lat],
+          zoom: 15,
+          attributionControl: false,
+        });
+
+        map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
+        map.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-right");
+        map.on("click", e => {
+          onSelectRef.current({
+            lat: e.lngLat.lat,
+            lng: e.lngLat.lng,
+            label: coordLabel(e.lngLat.lat, e.lngLat.lng),
+            needsReverseGeocode: true,
+          });
+        });
+
+        const markerEl = document.createElement("div");
+        markerEl.style.width = "18px";
+        markerEl.style.height = "18px";
+        markerEl.style.borderRadius = "18px";
+        markerEl.style.background = BL.red;
+        markerEl.style.border = "2px solid #fff";
+        markerEl.style.boxShadow = "0 2px 8px rgba(26,25,23,0.28)";
+
+        markerRef.current = new maplibregl.Marker({ element: markerEl })
+          .setLngLat([location.lng, location.lat])
+          .addTo(map);
+        mapRef.current = map;
+      })
+      .catch(() => setMapError("Map failed to load. You can still search or use current location."));
+
+    return () => {
+      cancelled = true;
+      markerRef.current?.remove();
+      mapRef.current?.remove();
+      markerRef.current = null;
+      mapRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!mapRef.current || !markerRef.current) return;
+    const lngLat = [location.lng, location.lat];
+    markerRef.current.setLngLat(lngLat);
+    mapRef.current.easeTo({ center: lngLat, zoom: 15, duration: 350 });
+  }, [location.lat, location.lng]);
+
+  return (
+    <div style={{ position: "relative", height: 210, border: `1px solid ${BL.hair}`, borderRadius: 8, overflow: "hidden", background: BL.fill, marginBottom: 10 }}>
+      <div ref={containerRef} style={{ width: "100%", height: "100%" }} />
+      <div style={{ position: "absolute", left: 10, bottom: 10, maxWidth: "calc(100% - 20px)", background: "rgba(255,255,255,0.92)", border: `1px solid ${BL.hair}`, borderRadius: 6, padding: "6px 8px", fontFamily: BL.sans, fontSize: 11, color: BL.ink, boxShadow: "0 4px 14px rgba(26,25,23,0.12)", pointerEvents: "none" }}>
+        Location: {location.label ?? coordLabel(location.lat, location.lng)}
+      </div>
+      {mapError && (
+        <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", padding: 16, background: BL.fill, fontFamily: BL.sans, fontSize: 12, color: BL.muted, textAlign: "center" }}>
+          {mapError}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Squad RSVP modal ──────────────────────────────────────────────────────────
 
 function SquadRsvpModal({ item, onClose }) {
   const [copied, setCopied] = useState(false);
-  const msg = `Hey squad! Let's donate blood together 🩸\n\n${item.name ?? item.location}\n${item.date}${item.startTime ? ` · ${item.startTime}` : ""}\n${item.location}\n\nRSVP here: <link>`;
+  const msg = `Hey squad! Let's donate blood together 🩸\n\n${item.name || item.location}\n${item.date}${item.startTime ? ` · ${item.startTime}` : ""}\n${item.location}\n\nRSVP here: <link>`;
 
   function share() {
     if (navigator.share) {
@@ -123,20 +259,131 @@ function HostDriveBubble({ onInviteSent }) {
   const [show,         setShow]         = useState(false);
   const [step,         setStep]         = useState("group");
   const [group,        setGroup]        = useState("");
-  const [time,         setTime]         = useState("");
-  const [page,         setPage]         = useState(0);
-  const timeOptions    = useMemo(() => buildTimeOptions(), []);
-  const inviteBloodType = useMemo(() => pickRandom(BLOOD_TYPES), []);
+  const [selectedDate, setSelectedDate] = useState(nextDateValue);
+  const [selectedTime, setSelectedTime] = useState("09:00");
+  const [selectedBloodTypes, setSelectedBloodTypes] = useState([]);
+  const [mapCenter,    setMapCenter]    = useState(DEFAULT_MAP_CENTER);
+  const [selectedLocation, setSelectedLocation] = useState(null);
+  const [locationQuery, setLocationQuery] = useState("");
+  const [locationResults, setLocationResults] = useState([]);
+  const [locationStatus, setLocationStatus] = useState("");
+  const [locationLoading, setLocationLoading] = useState(false);
   const inviteStatus    = useMemo(() => pickRandom(INVITE_STATUSES), []);
   const totalMembers    = useMemo(() => 96 + Math.floor(Math.random() * 65), []);
-  const pageCount       = Math.ceil(timeOptions.length / PER_PAGE);
-  const visible         = timeOptions.slice(page * PER_PAGE, page * PER_PAGE + PER_PAGE);
-  const selectedOpt     = timeOptions.find(o => o.id === time);
+  const activeLocation  = selectedLocation ?? mapCenter;
+  const selectedDateLabel = dateLabel(selectedDate);
+  const selectedDateTimeLabel = selectedDate && selectedTime
+    ? `${selectedDateLabel} · ${timeLabel(selectedTime)}`
+    : "";
+  const selectedBloodTypeLabel = selectedBloodTypes.length > 0 ? selectedBloodTypes.join(", ") : "Any blood type";
 
-  function close() { setShow(false); setStep("group"); setPage(0); }
+  useEffect(() => {
+    if (!show || selectedLocation || !navigator.geolocation) return;
+    setLocationStatus("Finding your current location...");
+    navigator.geolocation.getCurrentPosition(
+      pos => {
+        const next = { lat: pos.coords.latitude, lng: pos.coords.longitude, label: "Current location", needsReverseGeocode: true };
+        setMapCenter(next);
+        selectLocation(next);
+        setLocationStatus("");
+      },
+      () => setLocationStatus("Location access is off. Search or tap the map to choose a location.")
+    );
+  }, [show, selectedLocation]);
+
+  function close() { setShow(false); setStep("group"); }
+  function goBack() {
+    if (step === "review") { setStep("blood"); return; }
+    if (step === "blood") { setStep("time"); return; }
+    setStep("group");
+  }
+
+  function confirmLocation() {
+    if (!selectedLocation) return;
+    setGroup(selectedLocation.label || coordLabel(selectedLocation.lat, selectedLocation.lng));
+    setStep("time");
+  }
+
+  function toggleBloodType(type) {
+    setSelectedBloodTypes(prev => (
+      prev.includes(type)
+        ? prev.filter(t => t !== type)
+        : [...prev, type]
+    ));
+  }
+
+  async function selectLocation(place) {
+    const lat = Number(place.lat);
+    const lng = Number(place.lon ?? place.lng);
+    const fallback = coordLabel(lat, lng);
+    const next = {
+      lat,
+      lng,
+      label: place.display_name ?? place.label ?? fallback,
+    };
+    setSelectedLocation(next);
+    setMapCenter(next);
+
+    if (!place.needsReverseGeocode) return;
+
+    try {
+      const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lng)}&zoom=18&addressdetails=1`);
+      if (!res.ok) throw new Error("Reverse geocode failed");
+      const data = await res.json();
+      setSelectedLocation(prev => (
+        prev && prev.lat === lat && prev.lng === lng
+          ? { ...prev, label: streetLabel(data, fallback) }
+          : prev
+      ));
+    } catch {
+      setSelectedLocation(prev => (
+        prev && prev.lat === lat && prev.lng === lng
+          ? { ...prev, label: fallback }
+          : prev
+      ));
+    }
+  }
+
+  function useCurrentLocation() {
+    if (!navigator.geolocation) {
+      setLocationStatus("Geolocation is not supported by your browser.");
+      return;
+    }
+    setLocationStatus("Finding your current location...");
+    navigator.geolocation.getCurrentPosition(
+      pos => {
+        const next = { lat: pos.coords.latitude, lng: pos.coords.longitude, label: "Current location", needsReverseGeocode: true };
+        setMapCenter(next);
+        selectLocation(next);
+        setLocationStatus("");
+      },
+      () => setLocationStatus("Location access denied. Search or tap the map to choose a location.")
+    );
+  }
+
+  async function searchLocation(e) {
+    e.preventDefault();
+    const q = locationQuery.trim();
+    if (!q) return;
+    setLocationLoading(true);
+    setLocationStatus("");
+    try {
+      const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=5&countrycodes=sg&q=${encodeURIComponent(q)}`);
+      if (!res.ok) throw new Error("Search failed");
+      const data = await res.json();
+      setLocationResults(data);
+      if (data[0]) selectLocation(data[0]);
+      if (!data.length) setLocationStatus("No locations found. Try a nearby landmark or address.");
+    } catch {
+      setLocationStatus("Location search is unavailable right now.");
+    } finally {
+      setLocationLoading(false);
+    }
+  }
+
   function send()  {
-    if (!selectedOpt) return;
-    onInviteSent({ driveId: `hosted-${Date.now()}`, _type: "drive", name: `${group} blood drive`, date: selectedOpt.dateLabel, startTime: selectedOpt.time, location: selectedOpt.site, booked: 0, capacity: TARGET_RSVPS });
+    if (!selectedDate || !selectedTime) return;
+    onInviteSent({ driveId: `hosted-${Date.now()}`, _type: "drive", name: `${group} blood drive`, date: selectedDateLabel, startTime: selectedTime, location: group, booked: 0, capacity: TARGET_RSVPS });
     close();
   }
 
@@ -151,38 +398,67 @@ function HostDriveBubble({ onInviteSent }) {
 
       {show && (
         <div style={{ position: "fixed", inset: 0, zIndex: 30, display: "flex", alignItems: "center", justifyContent: "center", padding: 20, background: "rgba(26,25,23,0.28)" }}>
-          <div style={{ width: "100%", maxWidth: 420, background: BL.card, border: `1px solid ${BL.hair}`, borderRadius: 8, boxShadow: "0 18px 48px rgba(26,25,23,0.18)", padding: 18 }}>
+          <div style={{ width: "100%", maxWidth: 520, background: BL.card, border: `1px solid ${BL.hair}`, borderRadius: 8, boxShadow: "0 18px 48px rgba(26,25,23,0.18)", padding: 18 }}>
 
             {/* Header */}
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
               {step !== "group" ? (
-                <button onClick={() => setStep(step === "review" ? "time" : "group")} style={{ background: "none", border: "none", fontFamily: BL.sans, fontSize: 13, fontWeight: 600, color: BL.ink, cursor: "pointer", padding: 0 }}>← Back</button>
+                <button onClick={goBack} style={{ background: "none", border: "none", fontFamily: BL.sans, fontSize: 13, fontWeight: 600, color: BL.ink, cursor: "pointer", padding: 0 }}>← Back</button>
               ) : <div />}
               <button onClick={close} style={{ background: "none", border: "none", fontSize: 18, color: BL.muted, cursor: "pointer", padding: 0, lineHeight: 1 }}>×</button>
             </div>
 
             <div style={{ fontFamily: BL.mono, fontSize: 10, color: BL.faint, letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 5 }}>
-              {step === "group" ? "1" : step === "time" ? "2" : "3"}/3
+              {step === "group" ? "1" : step === "time" ? "2" : step === "blood" ? "3" : "4"}/4
             </div>
             <div style={{ fontFamily: BL.sans, fontSize: 16, fontWeight: 700, color: BL.ink, marginBottom: 5 }}>
-              {step === "group" ? "Who do you want to mobilise?" : step === "time" ? "When works for your team?" : "Review the invite"}
+              {step === "group" ? "Select a location" : step === "time" ? "Choose a date and time" : step === "blood" ? "Choose a blood type" : "Review the invite"}
             </div>
             {step !== "review" && (
               <div style={{ fontFamily: BL.sans, fontSize: 12, color: BL.muted, lineHeight: 1.45, marginBottom: 14 }}>
-                {step === "group" ? "We'll send a one-tap invite to your squad." : `Suggested times based on ${group}`}
+                {step === "group" ? "Search, use your current location, or tap the map to pick a meeting point." : step === "time" ? `Selected location: ${group}` : "Select one or more blood types to invite."}
               </div>
             )}
 
             {/* Step: Group */}
             {step === "group" && (
               <>
-                <div style={{ display: "grid", gap: 8, marginBottom: 14 }}>
-                  {MOBILISE_OPTIONS.map(o => (
-                    <button key={o} onClick={() => setGroup(o)} style={{ width: "100%", padding: "10px 12px", background: group === o ? "#fff" : BL.fill, color: BL.ink, border: `1px solid ${group === o ? BL.ink : BL.hair}`, borderRadius: 6, fontFamily: BL.sans, fontSize: 13, fontWeight: 600, textAlign: "left", cursor: "pointer" }}>{o}</button>
-                  ))}
+                <form onSubmit={searchLocation} style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 8, marginBottom: 10 }}>
+                  <input
+                    value={locationQuery}
+                    onChange={e => setLocationQuery(e.target.value)}
+                    placeholder="Search location"
+                    style={{ minWidth: 0, padding: "10px 12px", border: `1px solid ${BL.hair}`, borderRadius: 6, fontFamily: BL.sans, fontSize: 13, color: BL.ink }}
+                  />
+                  <button type="submit" disabled={locationLoading} style={{ padding: "10px 14px", background: BL.ink, color: "#fff", border: `1px solid ${BL.ink}`, borderRadius: 6, fontFamily: BL.sans, fontSize: 13, fontWeight: 700, cursor: locationLoading ? "default" : "pointer", opacity: locationLoading ? 0.55 : 1 }}>
+                    {locationLoading ? "Searching" : "Search"}
+                  </button>
+                </form>
+
+                <MapcnLocationMap location={activeLocation} onSelect={selectLocation} />
+
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 10 }}>
+                  <button type="button" onClick={useCurrentLocation} style={{ padding: "7px 10px", background: "#fff", border: `1px solid ${BL.hair}`, borderRadius: 6, fontFamily: BL.sans, fontSize: 12, fontWeight: 600, color: BL.ink, cursor: "pointer" }}>
+                    Use current location
+                  </button>
                 </div>
-                <button disabled={!group} onClick={() => { setPage(0); setStep("time"); }} style={{ width: "100%", padding: "10px 12px", background: group ? BL.ink : BL.fill, color: group ? "#fff" : BL.muted, border: `1px solid ${group ? BL.ink : BL.hair}`, borderRadius: 6, fontFamily: BL.sans, fontSize: 13, fontWeight: 700, cursor: group ? "pointer" : "default" }}>
-                  Continue → Set Time
+
+                {locationResults.length > 0 && (
+                  <div style={{ display: "grid", gap: 6, marginBottom: 10, maxHeight: 118, overflowY: "auto" }}>
+                    {locationResults.map(place => (
+                      <button key={place.place_id} type="button" onClick={() => selectLocation(place)} style={{ padding: "8px 10px", background: selectedLocation?.label === place.display_name ? "#fff" : BL.fill, color: BL.ink, border: `1px solid ${selectedLocation?.label === place.display_name ? BL.ink : BL.hair}`, borderRadius: 6, fontFamily: BL.sans, fontSize: 12, textAlign: "left", cursor: "pointer", lineHeight: 1.35 }}>
+                        {place.display_name}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                <div style={{ minHeight: 18, fontFamily: BL.sans, fontSize: 12, color: locationStatus ? BL.muted : BL.ink, marginBottom: 10, lineHeight: 1.4 }}>
+                  {locationStatus || (selectedLocation ? `Location: ${selectedLocation.label} (${coordLabel(selectedLocation.lat, selectedLocation.lng)})` : "No location selected yet.")}
+                </div>
+
+                <button disabled={!selectedLocation} onClick={confirmLocation} style={{ width: "100%", padding: "10px 12px", background: selectedLocation ? BL.ink : BL.fill, color: selectedLocation ? "#fff" : BL.muted, border: `1px solid ${selectedLocation ? BL.ink : BL.hair}`, borderRadius: 6, fontFamily: BL.sans, fontSize: 13, fontWeight: 700, cursor: selectedLocation ? "pointer" : "default" }}>
+                  Confirm Location
                 </button>
               </>
             )}
@@ -190,23 +466,85 @@ function HostDriveBubble({ onInviteSent }) {
             {/* Step: Time */}
             {step === "time" && (
               <div>
-                <div style={{ display: "grid", gap: 8 }}>
-                  {visible.map(o => (
-                    <button key={o.id} onClick={() => setTime(o.id)} style={{ width: "100%", display: "grid", gridTemplateColumns: "1fr auto", alignItems: "center", gap: 12, padding: 12, background: time === o.id ? "#fff" : BL.fill, border: `1px solid ${time === o.id ? BL.ink : BL.hair}`, borderRadius: 6, cursor: "pointer", textAlign: "left" }}>
-                      <span>
-                        <span style={{ display: "block", fontSize: 12, fontWeight: 700, color: BL.ink, marginBottom: 3 }}>{o.dateLabel}</span>
-                        <span style={{ display: "block", fontFamily: BL.mono, fontSize: 11, color: BL.muted }}>{o.time}</span>
-                      </span>
-                      <span style={{ fontFamily: BL.mono, fontSize: 9, fontWeight: 700, letterSpacing: 0.5, textTransform: "uppercase", color: BL.red, whiteSpace: "nowrap" }}>{o.site}</span>
-                    </button>
-                  ))}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
+                  <label style={{ display: "grid", gap: 6, fontFamily: BL.sans, fontSize: 12, color: BL.muted }}>
+                    Date
+                    <input
+                      type="date"
+                      value={selectedDate}
+                      min={new Date().toISOString().slice(0, 10)}
+                      onChange={e => setSelectedDate(e.target.value)}
+                      style={{ width: "100%", boxSizing: "border-box", padding: "10px 12px", border: `1px solid ${BL.hair}`, borderRadius: 6, fontFamily: BL.sans, fontSize: 13, color: BL.ink, background: "#fff" }}
+                    />
+                  </label>
+                  <label style={{ display: "grid", gap: 6, fontFamily: BL.sans, fontSize: 12, color: BL.muted }}>
+                    Time
+                    <select
+                      value={selectedTime}
+                      onChange={e => setSelectedTime(e.target.value)}
+                      style={{ width: "100%", boxSizing: "border-box", padding: "10px 12px", border: `1px solid ${BL.hair}`, borderRadius: 6, fontFamily: BL.sans, fontSize: 13, color: BL.ink, background: "#fff" }}
+                    >
+                      {DONATION_TIME_OPTIONS.map(t => (
+                        <option key={t} value={t}>{t}</option>
+                      ))}
+                    </select>
+                  </label>
                 </div>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 12, marginBottom: 14 }}>
-                  <button disabled={page === 0} onClick={() => setPage(p => p - 1)} style={{ padding: "6px 10px", background: BL.fill, border: `1px solid ${BL.hair}`, borderRadius: 6, fontFamily: BL.sans, fontSize: 12, fontWeight: 600, color: page === 0 ? BL.faint : BL.ink, cursor: page === 0 ? "default" : "pointer" }}>Previous</button>
-                  <span style={{ fontFamily: BL.mono, fontSize: 10, color: BL.muted }}>{page + 1} / {pageCount}</span>
-                  <button disabled={page === pageCount - 1} onClick={() => setPage(p => p + 1)} style={{ padding: "6px 10px", background: BL.fill, border: `1px solid ${BL.hair}`, borderRadius: 6, fontFamily: BL.sans, fontSize: 12, fontWeight: 600, color: page === pageCount - 1 ? BL.faint : BL.ink, cursor: page === pageCount - 1 ? "default" : "pointer" }}>Next</button>
+
+                <div style={{ background: BL.fill, border: `1px solid ${BL.hair}`, borderRadius: 8, padding: 12, marginBottom: 14 }}>
+                  <div style={{ fontFamily: BL.mono, fontSize: 10, color: BL.faint, letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 4 }}>
+                    Current selection
+                  </div>
+                  <div style={{ fontFamily: BL.sans, fontSize: 14, fontWeight: 700, color: BL.ink }}>
+                    {selectedDateTimeLabel || "Choose a date and time"}
+                  </div>
                 </div>
-                <button disabled={!time} onClick={() => setStep("review")} style={{ width: "100%", padding: "10px 12px", background: time ? BL.ink : BL.fill, color: time ? "#fff" : BL.muted, border: `1px solid ${time ? BL.ink : BL.hair}`, borderRadius: 6, fontFamily: BL.sans, fontSize: 13, fontWeight: 700, cursor: time ? "pointer" : "default" }}>
+                <button disabled={!selectedDate || !selectedTime} onClick={() => setStep("blood")} style={{ width: "100%", padding: "10px 12px", background: selectedDate && selectedTime ? BL.ink : BL.fill, color: selectedDate && selectedTime ? "#fff" : BL.muted, border: `1px solid ${selectedDate && selectedTime ? BL.ink : BL.hair}`, borderRadius: 6, fontFamily: BL.sans, fontSize: 13, fontWeight: 700, cursor: selectedDate && selectedTime ? "pointer" : "default" }}>
+                  Continue → Choose Blood Type
+                </button>
+              </div>
+            )}
+
+            {/* Step: Blood type */}
+            {step === "blood" && (
+              <div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, marginBottom: 14 }}>
+                  {BLOOD_TYPES.map(type => {
+                    const active = selectedBloodTypes.includes(type);
+                    return (
+                      <button
+                        key={type}
+                        type="button"
+                        onClick={() => toggleBloodType(type)}
+                        style={{
+                          minHeight: 44,
+                          padding: "9px 8px",
+                          background: active ? BL.ink : BL.fill,
+                          color: active ? "#fff" : BL.ink,
+                          border: `1px solid ${active ? BL.ink : BL.hair}`,
+                          borderRadius: 6,
+                          fontFamily: BL.sans,
+                          fontSize: 14,
+                          fontWeight: 700,
+                          cursor: "pointer",
+                        }}
+                      >
+                        {type}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div style={{ background: BL.fill, border: `1px solid ${BL.hair}`, borderRadius: 8, padding: 12, marginBottom: 14 }}>
+                  <div style={{ fontFamily: BL.mono, fontSize: 10, color: BL.faint, letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 4 }}>
+                    Selected blood types
+                  </div>
+                  <div style={{ fontFamily: BL.sans, fontSize: 14, fontWeight: 700, color: BL.ink }}>
+                    {selectedBloodTypeLabel}
+                  </div>
+                </div>
+
+                <button onClick={() => setStep("review")} style={{ width: "100%", padding: "10px 12px", background: BL.ink, color: "#fff", border: `1px solid ${BL.ink}`, borderRadius: 6, fontFamily: BL.sans, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
                   Continue → Draft Invite
                 </button>
               </div>
@@ -217,11 +555,11 @@ function HostDriveBubble({ onInviteSent }) {
               <div>
                 <div style={{ background: BL.fill, border: `1px solid ${BL.hair}`, borderRadius: 8, padding: 14, fontFamily: BL.sans, fontSize: 13, color: BL.ink, lineHeight: 1.55, marginBottom: 14 }}>
                   <div style={{ fontWeight: 700, marginBottom: 6 }}>Preview</div>
-                  {ORGANIZER_NAME} is organising a blood drive at {selectedOpt?.dateLabel}, {selectedOpt?.time}, {selectedOpt?.site} — {inviteBloodType} is currently at <b>{inviteStatus}</b> nationally. Tap to RSVP — about 15 min.
+                  {ORGANIZER_NAME} is organising a blood drive at {group}, {selectedDateTimeLabel}. Inviting <b>{selectedBloodTypeLabel}</b> donors — {selectedBloodTypeLabel} is currently at <b>{inviteStatus}</b> nationally. Tap to RSVP — about 15 min.
                 </div>
                 <div style={{ background: BL.card, border: `1px solid ${BL.hair}`, borderRadius: 8, padding: 14, marginBottom: 14 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "baseline", marginBottom: 10 }}>
-                    <span style={{ fontFamily: BL.sans, fontSize: 13, color: BL.ink }}><b>14 {inviteBloodType}</b> eligible · {totalMembers} total members</span>
+                    <span style={{ fontFamily: BL.sans, fontSize: 13, color: BL.ink }}><b>14 {selectedBloodTypeLabel}</b> eligible · {totalMembers} total members</span>
                     <span style={{ fontFamily: BL.mono, fontSize: 10, fontWeight: 700, color: BL.red, letterSpacing: 0.4, textTransform: "uppercase", flexShrink: 0 }}>need {TARGET_RSVPS} RSVPs</span>
                   </div>
                   <div style={{ height: 6, background: BL.fill, borderRadius: 3, overflow: "hidden" }}>
@@ -229,7 +567,7 @@ function HostDriveBubble({ onInviteSent }) {
                   </div>
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-                  <button onClick={() => setStep("time")} style={{ padding: "10px 12px", background: "#fff", color: BL.ink, border: `1px solid ${BL.ink}`, borderRadius: 6, fontFamily: BL.sans, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>Edit</button>
+                  <button onClick={() => setStep("blood")} style={{ padding: "10px 12px", background: "#fff", color: BL.ink, border: `1px solid ${BL.ink}`, borderRadius: 6, fontFamily: BL.sans, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>Edit</button>
                   <button onClick={send} style={{ padding: "10px 12px", background: BL.ink, color: "#fff", border: `1px solid ${BL.ink}`, borderRadius: 6, fontFamily: BL.sans, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>Send Invite</button>
                 </div>
               </div>
@@ -247,22 +585,33 @@ export default function DonorDrivesPanel() {
   const [items,        setItems]        = useState([]);
   const [loading,      setLoading]      = useState(true);
   const [error,        setError]        = useState("");
+  const [sessionTab,   setSessionTab]   = useState("all");
   const [locationFilter, setLocationFilter] = useState("all"); // "all" | "nearby"
   const [userCoords,   setUserCoords]   = useState(null);
   const [locError,     setLocError]     = useState("");
   const [bookingState, setBookingState] = useState({});
-  const [bookedId,     setBookedId]     = useState(null);
+  const [booked,       setBooked]       = useState({}); // { [id]: "slot" | "drive" } — ALL of the donor's active bookings
   const [squadItem,    setSquadItem]    = useState(null);
 
   useEffect(() => {
     loadAll();
+    refreshBookings();
+  }, []);
+
+  // Track every booking the donor has, not just the first — otherwise already-booked
+  // slots show "Book" and the server rejects with 409 "you already have a booking".
+  function refreshBookings() {
     getMyBookings()
       .then(d => {
-        const b = d.bookings?.[0];
-        if (b) setBookedId(b.driveId ?? b.slotId ?? null);
+        const map = {};
+        (d.bookings ?? []).forEach(b => {
+          const id = b.slotId ?? b.driveId;
+          if (id) map[id] = b.slotId ? "slot" : "drive";
+        });
+        setBooked(map);
       })
       .catch(() => {});
-  }, []);
+  }
 
   async function loadAll() {
     setLoading(true); setError("");
@@ -298,11 +647,21 @@ export default function DonorDrivesPanel() {
     setLocationFilter("all");
   }
 
-  const displayItems = locationFilter === "nearby" && userCoords
-    ? items.filter(item => item.lat != null && item.lng != null && haversineKm(userCoords.lat, userCoords.lng, item.lat, item.lng) <= 5)
-    : items;
+  const tabItems = sessionTab === "all"
+    ? items
+    : items.filter(item => item._type === sessionTab);
 
-  const isBooked = !!bookedId;
+  const displayItems = locationFilter === "nearby" && userCoords
+    ? tabItems.filter(item => item.lat != null && item.lng != null && haversineKm(userCoords.lat, userCoords.lng, item.lat, item.lng) <= 5)
+    : tabItems;
+
+  const sessionCounts = useMemo(() => ({
+    all: items.length,
+    drive: items.filter(item => item._type === "drive").length,
+    slot: items.filter(item => item._type === "slot").length,
+  }), [items]);
+
+  const isBooked = Object.keys(booked).length > 0;
 
   async function book(item) {
     const id = item._id;
@@ -314,13 +673,38 @@ export default function DonorDrivesPanel() {
         await createBooking({ driveId: item._id, slotTime: new Date().toISOString() });
       }
       setBookingState(prev => ({ ...prev, [id]: { done: true } }));
-      setBookedId(id);
+      setBooked(prev => ({ ...prev, [id]: item._type }));
     } catch (e) {
-      setBookingState(prev => ({ ...prev, [id]: { error: e.message } }));
+      // Server says it's already booked → reflect that so the user can cancel it
+      if (e.message?.includes("already have a booking")) {
+        setBooked(prev => ({ ...prev, [id]: item._type }));
+        setBookingState(prev => { const n = { ...prev }; delete n[id]; return n; });
+      } else {
+        setBookingState(prev => ({ ...prev, [id]: { error: e.message } }));
+      }
     }
   }
 
-  function cancelBooking() { setBookedId(null); setBookingState({}); }
+  async function cancelBooking(id, type) {
+    // Slot bookings persist server-side — must be deleted there, or re-booking
+    // hits "you already have a booking for this slot". Drive bookings are local-only.
+    if (type === "slot" && id) {
+      try {
+        await cancelSlotBooking(id);
+      } catch (e) {
+        const gone = e.message?.includes("not found") || e.message?.includes("404");
+        if (!gone) {
+          // Real failure — keep the booking so the UI doesn't lie about state
+          setBookingState(prev => ({ ...prev, [id]: { error: e.message } }));
+          return;
+        }
+        // 404 → already cancelled server-side; fall through and clear local state
+      }
+    }
+    setBooked(prev => { const next = { ...prev }; delete next[id]; return next; });
+    setBookingState(prev => { const next = { ...prev }; delete next[id]; return next; });
+    loadAll(); // re-sync slot capacity counts
+  }
 
   function addHostedDrive(drive) { setItems(prev => [drive, ...prev]); }
 
@@ -330,6 +714,35 @@ export default function DonorDrivesPanel() {
         sub={items.length > 0 ? `${items.length} available` : undefined}
         title="Book a session"
       />
+
+      {/* Session type tabs */}
+      <div style={{ display: "flex", gap: 6, marginBottom: 14, borderBottom: `1px solid ${BL.hair}` }}>
+        {SESSION_TABS.map(t => {
+          const active = sessionTab === t.id;
+          return (
+            <button
+              key={t.id}
+              onClick={() => setSessionTab(t.id)}
+              style={{
+                padding: "9px 12px 8px",
+                background: "none",
+                border: "none",
+                borderBottom: `2px solid ${active ? BL.red : "transparent"}`,
+                fontFamily: BL.sans,
+                fontSize: 13,
+                fontWeight: active ? 700 : 500,
+                color: active ? BL.ink : BL.muted,
+                cursor: "pointer",
+              }}
+            >
+              {t.label}
+              <span style={{ marginLeft: 6, fontFamily: BL.mono, fontSize: 10, color: active ? BL.red : BL.faint }}>
+                {sessionCounts[t.id]}
+              </span>
+            </button>
+          );
+        })}
+      </div>
 
       {/* Active booking banner */}
       {isBooked && (
@@ -365,21 +778,23 @@ export default function DonorDrivesPanel() {
       {error   && <div style={{ fontFamily: BL.sans, color: BL.need.critical.fg, fontSize: 13, marginBottom: 12 }}>{error}</div>}
       {!loading && displayItems.length === 0 && (
         <div style={{ fontFamily: BL.sans, color: BL.faint, fontSize: 13, marginBottom: 12 }}>
-          {locationFilter === "nearby" ? "No sessions within 5 km of your location." : "No upcoming sessions found."}
+          {locationFilter === "nearby" ? "No sessions within 5 km of your location." : `No upcoming ${sessionTab === "slot" ? "bloodbank slots" : sessionTab === "drive" ? "drives" : "sessions"} found.`}
         </div>
       )}
 
       {/* Host a Drive CTA */}
-      <div style={{ marginBottom: 18 }}>
-        <HostDriveBubble onInviteSent={addHostedDrive} />
-      </div>
+      {sessionTab !== "slot" && (
+        <div style={{ marginBottom: 18 }}>
+          <HostDriveBubble onInviteSent={addHostedDrive} />
+        </div>
+      )}
 
       {/* Cards */}
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         {displayItems.map(item => {
           const pct          = item.capacity > 0 ? (item.booked / item.capacity) * 100 : 0;
           const almostFull   = pct > 80;
-          const isThisBooked = bookedId === item._id;
+          const isThisBooked = !!booked[item._id];
           const isOtherBooked = isBooked && !isThisBooked;
           const bs           = bookingState[item._id] ?? {};
           const badge        = TYPE_BADGE[item._type] ?? TYPE_BADGE.drive;
@@ -398,7 +813,7 @@ export default function DonorDrivesPanel() {
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontFamily: BL.sans, fontSize: 14, fontWeight: 600, color: BL.ink, marginBottom: 2 }}>
-                    {item.name ?? item.location}
+                    {item.name || item.location}
                   </div>
                   {item.name && item.location && (
                     <div style={{ fontFamily: BL.sans, fontSize: 12, color: BL.muted, marginBottom: 2 }}>
@@ -435,10 +850,10 @@ export default function DonorDrivesPanel() {
               {isThisBooked ? (
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                   <span style={{ fontFamily: BL.sans, fontSize: 13, color: BL.need.ok.fg, fontWeight: 600 }}>✓ You're booked — see you there!</span>
-                  <button onClick={cancelBooking} style={{ background: "none", border: `1px solid ${BL.hair}`, borderRadius: 5, color: BL.muted, fontFamily: BL.sans, fontSize: 12, padding: "5px 12px", cursor: "pointer" }}>Cancel</button>
+                  <button onClick={() => cancelBooking(item._id, item._type)} style={{ background: "none", border: `1px solid ${BL.hair}`, borderRadius: 5, color: BL.muted, fontFamily: BL.sans, fontSize: 12, padding: "5px 12px", cursor: "pointer" }}>Cancel</button>
                 </div>
               ) : isOtherBooked ? (
-                <div style={{ fontFamily: BL.sans, fontSize: 12, color: BL.faint }}>Cancel your current booking to RSVP here</div>
+                <div style={{ fontFamily: BL.sans, fontSize: 12, color: BL.faint }}>Cancel your current booking to {item._type === "slot" ? "book" : "RSVP"} here</div>
               ) : (
                 <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                   <button
@@ -446,14 +861,16 @@ export default function DonorDrivesPanel() {
                     disabled={bs.loading}
                     style={{ padding: "9px 20px", background: BL.ink, color: "#fff", border: "none", borderRadius: 6, fontFamily: BL.sans, fontSize: 13, fontWeight: 600, cursor: bs.loading ? "default" : "pointer", opacity: bs.loading ? 0.5 : 1, minHeight: 38 }}
                   >
-                    {bs.loading ? "Booking…" : "RSVP"}
+                    {bs.loading ? "Booking…" : item._type === "slot" ? "Book" : "RSVP"}
                   </button>
-                  <button
-                    onClick={() => setSquadItem(item)}
-                    style={{ padding: "9px 16px", background: "none", border: `1px solid ${BL.hair}`, borderRadius: 6, fontFamily: BL.sans, fontSize: 13, color: BL.ink, cursor: "pointer", minHeight: 38 }}
-                  >
-                    Squad RSVP
-                  </button>
+                  {item._type !== "slot" && (
+                    <button
+                      onClick={() => setSquadItem(item)}
+                      style={{ padding: "9px 16px", background: "none", border: `1px solid ${BL.hair}`, borderRadius: 6, fontFamily: BL.sans, fontSize: 13, color: BL.ink, cursor: "pointer", minHeight: 38 }}
+                    >
+                      Squad RSVP
+                    </button>
+                  )}
                   {bs.error && <span style={{ fontFamily: BL.sans, fontSize: 12, color: BL.need.critical.fg }}>{bs.error}</span>}
                 </div>
               )}

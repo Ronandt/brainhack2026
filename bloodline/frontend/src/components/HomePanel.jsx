@@ -3,7 +3,7 @@ import QRCode from "react-qr-code";
 import {
   getDonor, getStatus, getDrives,
   getSlots, bookSlot, cancelSlotBooking, getBloodStock,
-  getSurgeMonitor, getMyBookings, updateDonor,
+  getSurgeMonitor, getMyBookings, updateDonor, getForecast
 } from "../api";
 import { getToken } from "../auth";
 import { BL, riskToNeed } from "../tokens";
@@ -87,6 +87,7 @@ export default function HomePanel() {
   const [loading,           setLoading]           = useState(true);
   const [bloodStock,        setBloodStock]        = useState([]);
   const [bloodStockUpdated, setBloodStockUpdated] = useState("");
+  const [typeForecast,      setTypeForecast]      = useState(null); // 14-day outlook for the donor's own type
   const [screen,            setScreen]            = useState(null);
   const [selectedSlot,      setSelectedSlot]      = useState(null);
   const [confirming,        setConfirming]        = useState(false);
@@ -213,6 +214,18 @@ export default function HomePanel() {
   const typeStockItem = bloodStock.find(s => s.bloodType === userType);
   const typeNeed      = typeStockItem ? statusToNeed(typeStockItem.status) : "ok";
 
+  // 14-day forecast scoped to the donor's own blood type, so they can plan ahead
+  useEffect(() => {
+    if (!userType) return;
+    getForecast(userType)
+      .then(d => {
+        const f = d.forecast ?? {};
+        // Prefer the exact type; fall back to the only series returned (guards key mismatches)
+        setTypeForecast(f[userType] ?? Object.values(f)[0] ?? null);
+      })
+      .catch(() => setTypeForecast(null));
+  }, [userType]);
+
   // Active surge: hidden if snoozed OR donor already has a confirmed booking
   const isSnoozed  = Date.now() < snoozedUntil;
   const surgeMatchesUser = (a) => {
@@ -322,7 +335,7 @@ export default function HomePanel() {
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontFamily: BL.sans, fontSize: 14, color: BL.ink, fontWeight: 600 }}>
-                      {slot.name ?? slot.location}
+                      {slot.name || slot.location}
                     </div>
                     {slot.name && slot.location && (
                       <div style={{ fontFamily: BL.sans, fontSize: 12, color: BL.muted, marginTop: 1 }}>
@@ -633,7 +646,7 @@ export default function HomePanel() {
             Your booking
           </div>
           {[
-            { l: "Drive",    v: drive.name ?? drive.location ?? "—" },
+            { l: "Drive",    v: drive.name || drive.location || "—" },
             { l: "When",     v: drive.date ? `${drive.date}${timeRange ? ` · ${timeRange}` : ""}` : "—" },
             { l: "Location", v: drive.location ?? "—" },
           ].map(({ l, v }, i) => (
@@ -693,7 +706,7 @@ export default function HomePanel() {
             <div style={{ fontFamily: BL.sans, fontSize: 15, fontWeight: 600, color: BL.ink }}>You're booked</div>
           </div>
           <div style={{ fontFamily: BL.sans, fontSize: 16, fontWeight: 600, color: BL.ink, marginBottom: 4 }}>
-            {drive.name ?? drive.location ?? "Blood drive"}
+            {drive.name || drive.location || "Blood drive"}
           </div>
           <div style={{ fontFamily: BL.mono, fontSize: 11, color: BL.muted, letterSpacing: 0.3 }}>
             {drive.date}{timeRange ? ` · ${timeRange}` : ""}
@@ -862,7 +875,7 @@ export default function HomePanel() {
               <>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                   <div style={{ flex: 1, minWidth: 0, marginRight: 12 }}>
-                    <div style={{ fontFamily: BL.sans, fontSize: 15, color: BL.ink, fontWeight: 600 }}>{nearestSlot.name ?? nearestSlot.location}</div>
+                    <div style={{ fontFamily: BL.sans, fontSize: 15, color: BL.ink, fontWeight: 600 }}>{nearestSlot.name || nearestSlot.location}</div>
                     {nearestSlot.name && nearestSlot.location && (
                       <div style={{ fontFamily: BL.sans, fontSize: 12, color: BL.muted, marginTop: 2 }}>{nearestSlot.location}</div>
                     )}
@@ -950,6 +963,17 @@ export default function HomePanel() {
   const needDot     = (typeNeed === "urgent" || typeNeed === "critical") ? BL.red : BL.ink;
   const nearestSlot = slots[0] ?? null;
 
+  // Plain-language read of the 14-day outlook for the donor's own type
+  const forecastSummary = (() => {
+    if (!typeForecast?.length) return "";
+    const firstRisk = typeForecast.find(d => d.riskLevel === "urgent" || d.riskLevel === "critical");
+    if (firstRisk) {
+      const when = new Date(`${firstRisk.date}T12:00:00`).toLocaleDateString("en-SG", { day: "numeric", month: "short" });
+      return `Projected to reach ${firstRisk.riskLevel} supply around ${when} — donating ahead of that helps most.`;
+    }
+    return `${userType} supply is projected to stay stable over the next 14 days.`;
+  })();
+
   return (
     <div>
       <AppHeader sub={greeting} title={firstName ? `Hi, ${firstName}` : "Home"} />
@@ -997,6 +1021,44 @@ export default function HomePanel() {
             </div>
           </div>
         )}
+
+        {/* 14-day outlook for the donor's own type — plan ahead */}
+        {userType && typeForecast?.length > 0 && (
+          <div style={{ marginTop: 10, background: BL.card, border: `1px solid ${BL.hair}`, borderRadius: 6, padding: 10 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 8 }}>
+              <span style={{ fontFamily: BL.mono, fontSize: 9, color: BL.muted, letterSpacing: 0.6, textTransform: "uppercase" }}>
+                14-day outlook · {userType}
+              </span>
+              <span style={{ fontFamily: BL.mono, fontSize: 8, color: BL.faint, letterSpacing: 0.4, textTransform: "uppercase" }}>
+                projected supply
+              </span>
+            </div>
+            <div style={{ display: "flex", alignItems: "flex-end", gap: 2, height: 42, marginBottom: 5 }}>
+              {typeForecast.map(day => {
+                const need = riskToNeed(day.riskLevel);
+                return (
+                  <div
+                    key={day.date}
+                    title={`${day.date} · ${day.riskLevel} · ${Math.round(day.percentage)}%`}
+                    style={{
+                      flex: 1, height: `${Math.max(8, Math.min(100, day.percentage))}%`,
+                      background: BL.need[need].fg, borderRadius: 1, opacity: 0.85,
+                    }}
+                  />
+                );
+              })}
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", fontFamily: BL.mono, fontSize: 8, color: BL.faint }}>
+              <span>{typeForecast[0].date.slice(5)}</span>
+              <span>{typeForecast[typeForecast.length - 1].date.slice(5)}</span>
+            </div>
+            {forecastSummary && (
+              <div style={{ fontFamily: BL.sans, fontSize: 12, color: BL.muted, marginTop: 8, lineHeight: 1.45 }}>
+                {forecastSummary}
+              </div>
+            )}
+          </div>
+        )}
       </TimelineNode>
 
       {/* Node 3 — When can I go? */}
@@ -1038,7 +1100,7 @@ export default function HomePanel() {
           ) : nearestSlot ? (
             <div style={{ marginTop: 8, background: BL.card, border: `1px solid ${BL.hair}`, borderRadius: 6, padding: 14 }}>
               <div style={{ fontFamily: BL.sans, fontSize: 14, color: BL.ink, fontWeight: 600 }}>
-                {nearestSlot.name ?? nearestSlot.location}
+                {nearestSlot.name || nearestSlot.location}
               </div>
               {nearestSlot.name && nearestSlot.location && (
                 <div style={{ fontFamily: BL.sans, fontSize: 12, color: BL.muted, marginTop: 1 }}>

@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { activateSurge, endSurge, getAllAlerts, getSurgeReach } from "../../api";
 import { BL } from "../../tokens";
+import SurgeReachMap from "./SurgeReachMap";
 
 const BLOOD_TYPES = ["O-", "O+", "A-", "A+", "B-", "B+", "AB-", "AB+"];
 
@@ -114,9 +115,18 @@ export default function SurgePanel() {
   const responses = Math.round(notified * (TIER_RATE[geoTier] ?? 0.1));
   const reach = { notified, responses };
   const bloodLabel = bloodTypes.length ? bloodTypes.join(", ") : "—";
+<<<<<<< HEAD
   const activeAlerts = alerts
     .filter(a => a.status === "active")
     .sort((a, b) => (b.activatedAt ?? "").localeCompare(a.activatedAt ?? ""));
+=======
+  const activeAlerts = alerts.filter(a => a.status === "active");
+  // Live monitor: every active alert first (so each stays cancellable), then a few recent ended ones for context
+  const monitorAlerts = [
+    ...activeAlerts,
+    ...alerts.filter(a => a.status !== "active").slice(0, 3),
+  ];
+>>>>>>> ead547d8f2c0987ba49e4537f78b626395b0789d
 
   const labelStyle = { display: "block", fontFamily: BL.sans, fontSize: 12, color: BL.muted, marginBottom: 6, marginTop: 16 };
   const inputStyle = {
@@ -268,6 +278,9 @@ export default function SurgePanel() {
           <W pad={20} style={{ marginBottom: 14 }}>
             <Tag>Step 2 · Projected reach</Tag>
             <div style={{ marginTop: 12 }}>
+              <SurgeReachMap geoTier={geoTier} notified={reach.notified} bloodLabel={bloodLabel} />
+            </div>
+            <div style={{ marginTop: 12 }}>
               <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
                 <span style={{ fontFamily: BL.mono, fontSize: 32, color: BL.ink, fontWeight: 600, letterSpacing: -0.6 }}>
                   {reach.notified.toLocaleString()}
@@ -338,7 +351,11 @@ export default function SurgePanel() {
           {activeAlerts.length > 0 && (
             <W pad={16} style={{ marginTop: 14 }}>
               <div style={{ fontFamily: BL.sans, fontSize: 13, fontWeight: 600, color: BL.ink, marginBottom: 10 }}>Live alert monitor</div>
+<<<<<<< HEAD
               {activeAlerts.slice(0, 3).map(a => (
+=======
+              {monitorAlerts.map(a => (
+>>>>>>> ead547d8f2c0987ba49e4537f78b626395b0789d
                 <div key={a.alertId} style={{ background: BL.fill, borderRadius: 6, padding: "10px 12px", marginBottom: 8 }}>
                   <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 6 }}>
                     <span style={{ fontFamily: BL.mono, fontWeight: 600, color: BL.red, fontSize: 14 }}>{a.bloodType}</span>
@@ -370,6 +387,10 @@ export default function SurgePanel() {
                     <div style={{ textAlign: "center" }}>
                       <div style={{ fontSize: 16, fontWeight: 600, color: BL.ink }}>{a.emailsSent ?? 0}</div>
                       <div style={{ fontSize: 9, color: BL.muted, letterSpacing: 0.4, textTransform: "uppercase", marginTop: 2 }}>Emails</div>
+                    </div>
+                    <div style={{ textAlign: "center" }}>
+                      <div style={{ fontSize: 16, fontWeight: 600, color: BL.ink }}>{a.smsSent ?? 0}</div>
+                      <div style={{ fontSize: 9, color: BL.muted, letterSpacing: 0.4, textTransform: "uppercase", marginTop: 2 }}>SMS</div>
                     </div>
                     <div style={{ textAlign: "center" }}>
                       <div style={{ fontSize: 16, fontWeight: 600, color: BL.ink }}>{a.responses ?? 0}</div>
