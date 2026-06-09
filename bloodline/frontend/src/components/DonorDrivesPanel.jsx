@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { getDrives, getSlots, createBooking, bookSlot, cancelSlotBooking, getMyBookings } from "../api";
 import { BL } from "../tokens";
+import { BLOODBANK_COORDS, haversineKm, resolveCoords } from "../geo";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -27,35 +28,8 @@ const TYPE_BADGE = {
   slot:  { label: "BLOODBANK", bg: "#e0eeff", fg: "#1a5cbf" },
 };
 
-// Approximate coordinates for the fixed Singapore blood banks. Slots only carry a
-// location name, so we map the name → coords to compute proximity for booking.
-const BLOODBANK_COORDS = {
-  "Bloodbank@HSA":          { lat: 1.2812, lng: 103.8389 },
-  "Bloodbank@Dhoby Ghaut":  { lat: 1.2993, lng: 103.8455 },
-  "Bloodbank@Woodlands":    { lat: 1.4360, lng: 103.7865 },
-  "Bloodbank@Westgate":     { lat: 1.3338, lng: 103.7430 },
-  "Bloodbank@One Punggol":  { lat: 1.4050, lng: 103.9020 },
-  "HSA Bloodbank":          { lat: 1.2812, lng: 103.8389 },
-  "Singapore Red Cross":    { lat: 1.2966, lng: 103.8485 },
-};
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-
-function haversineKm(lat1, lon1, lat2, lon2) {
-  const R = 6371, r = Math.PI / 180;
-  const dLat = (lat2 - lat1) * r, dLon = (lon2 - lon1) * r;
-  const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * r) * Math.cos(lat2 * r) * Math.sin(dLon / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
-
-// Coordinates for a session: an explicit lat/lng, a known blood bank, or a
-// geocoded drive location name (resolved asynchronously into geoCache).
-function resolveCoords(item, geoCache = {}) {
-  if (item.lat != null && item.lng != null) return { lat: Number(item.lat), lng: Number(item.lng) };
-  const bank = BLOODBANK_COORDS[item.location];
-  if (bank) return bank;
-  return geoCache[item.location] || null;
-}
 
 function pickRandom(items) { return items[Math.floor(Math.random() * items.length)]; }
 function coordLabel(lat, lng) { return `${lat.toFixed(5)}, ${lng.toFixed(5)}`; }

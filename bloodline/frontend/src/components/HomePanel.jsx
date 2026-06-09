@@ -7,6 +7,7 @@ import {
 } from "../api";
 import { getToken } from "../auth";
 import { BL, riskToNeed } from "../tokens";
+import { resolveCoords, haversineKm, formatDistance } from "../geo";
 
 function AppHeader({ sub, title, right }) {
   return (
@@ -82,6 +83,7 @@ export default function HomePanel() {
   const [status,            setStatus]            = useState(null);
   const [drives,            setDrives]            = useState([]); // used for surge action card
   const [slots,             setSlots]             = useState([]); // slot-based booking
+  const [userCoords,        setUserCoords]        = useState(null); // for nearest-bloodbank distance
   const [surgeAlerts,       setSurgeAlerts]       = useState([]);
   const [activeBooking,     setActiveBooking]     = useState(null);
   const [loading,           setLoading]           = useState(true);
@@ -190,6 +192,15 @@ export default function HomePanel() {
       Notification.requestPermission().catch(() => {});
     }
 
+    // Grab the donor's location so we can show the nearest bloodbank slot + distance.
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        pos => setUserCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+        () => {},
+        { enableHighAccuracy: false, timeout: 8000, maximumAge: 300000 }
+      );
+    }
+
     fetchBookings();
     fetchSurge();
     const id = setInterval(fetchSurge, 30_000);
@@ -203,6 +214,19 @@ export default function HomePanel() {
   const userType  = donor?.bloodType;
   const typeStockItem = bloodStock.find(s => s.bloodType === userType);
   const typeNeed      = typeStockItem ? statusToNeed(typeStockItem.status) : "ok";
+
+  // Sort slots by distance from the donor (nearest first) when we know their
+  // location; otherwise keep server order. nearestSlot.{_distanceKm} drives the
+  // "WHEN CAN I GO?" card.
+  const slotsByDistance = userCoords
+    ? slots
+        .map(s => {
+          const c = resolveCoords(s);
+          return { ...s, _distanceKm: c ? haversineKm(userCoords.lat, userCoords.lng, c.lat, c.lng) : null };
+        })
+        .sort((a, b) => (a._distanceKm ?? Infinity) - (b._distanceKm ?? Infinity))
+    : slots.map(s => ({ ...s, _distanceKm: null }));
+  const nearestSlot = slotsByDistance[0] ?? null;
 
   // 14-day forecast scoped to the donor's own blood type, so they can plan ahead
   useEffect(() => {
@@ -838,7 +862,6 @@ export default function HomePanel() {
 
   // ── Surge mode — full-screen takeover ────────────────────────────
   if (activeSurge) {
-    const nearestSlot = slots[0] ?? null;
     const alertDate   = new Date().toLocaleDateString("en-SG", { day: "numeric", month: "short" }).toUpperCase();
     const alertTime   = new Date().toLocaleTimeString("en-SG", { hour: "2-digit", minute: "2-digit" });
 
@@ -951,7 +974,6 @@ export default function HomePanel() {
     : "Not urgently.";
 
   const needDot     = (typeNeed === "urgent" || typeNeed === "critical") ? BL.red : BL.ink;
-  const nearestSlot = slots[0] ?? null;
 
   // Plain-language read of the 14-day outlook for the donor's own type
   const forecastSummary = (() => {
@@ -1089,6 +1111,9 @@ export default function HomePanel() {
             </div>
           ) : nearestSlot ? (
             <div style={{ marginTop: 8, background: BL.card, border: `1px solid ${BL.hair}`, borderRadius: 6, padding: 14 }}>
+              {nearestSlot._distanceKm != null && (
+                <div style={{ marginBottom: 4 }}><Tag color={BL.red}>Nearest bloodbank · {formatDistance(nearestSlot._distanceKm)} away</Tag></div>
+              )}
               <div style={{ fontFamily: BL.sans, fontSize: 14, color: BL.ink, fontWeight: 600 }}>
                 {nearestSlot.name || nearestSlot.location}
               </div>

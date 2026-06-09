@@ -329,14 +329,21 @@ function useIsMobile() {
 }
 
 // Shared tab icon (square with rounded corners, matching prototype)
-function TabIcon({ active }) {
+// Per-tab line icons for the donor nav (home / book / impact / you)
+function NavIcon({ id, active, size = 20 }) {
+  const color = active ? BL.ink : BL.muted;
+  const p = {
+    home:    <><path d="M3 10.5 12 3l9 7.5" /><path d="M5 9.5V21h14V9.5" /><path d="M9.5 21v-6h5v6" /></>,
+    drives:  <><rect x="3.5" y="5" width="17" height="16" rx="2" /><path d="M3.5 9.5h17" /><path d="M8 3v4M16 3v4" /></>,
+    impact:  <path d="M12 20.5C7 17 3.5 13.8 3.5 9.8 3.5 7.1 5.6 5 8.2 5c1.7 0 3 .9 3.8 2.2C12.8 5.9 14.1 5 15.8 5c2.6 0 4.7 2.1 4.7 4.8 0 4-3.5 7.2-8.5 10.7Z" />,
+    profile: <><circle cx="12" cy="8" r="3.5" /><path d="M5 20c0-3.5 3.1-6 7-6s7 2.5 7 6" /></>,
+  };
   return (
-    <div style={{
-      width: 22, height: 22, margin: "0 auto 3px",
-      borderRadius: 5,
-      border: `1.5px solid ${active ? BL.ink : BL.faint}`,
-      background: active ? BL.ink : "transparent",
-    }} />
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+      stroke={color} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"
+      style={{ display: "block" }}>
+      {p[id] ?? p.home}
+    </svg>
   );
 }
 
@@ -389,11 +396,7 @@ function DonorDesktopLayout({ tab, setTab, onLogout }) {
                 borderLeft: tab === t.id ? `2px solid ${BL.red}` : "2px solid transparent",
               }}
             >
-              <div style={{
-                width: 16, height: 16, borderRadius: 3, flexShrink: 0,
-                border: `1.5px solid ${tab === t.id ? BL.ink : BL.faint}`,
-                background: tab === t.id ? BL.ink : "transparent",
-              }} />
+              <NavIcon id={t.id} active={tab === t.id} size={17} />
               {t.label}
             </button>
           ))}
@@ -479,7 +482,9 @@ function DonorMobileLayout({ tab, setTab, onLogout }) {
                 cursor: "pointer", padding: "6px 0",
               }}
             >
-              <TabIcon active={active} />
+              <div style={{ display: "flex", justifyContent: "center", marginBottom: 3 }}>
+                <NavIcon id={t.id} active={active} size={22} />
+              </div>
               <div style={{
                 fontFamily: BL.sans, fontSize: 10, fontWeight: 500,
                 color: active ? BL.ink : BL.faint,
