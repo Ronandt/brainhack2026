@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { getDrives, getSlots, createBooking, bookSlot, cancelSlotBooking, getMyBookings, createDrive, getMyDrives, getNotifications, markNotificationRead } from "../api";
 import { BL } from "../tokens";
-import { BLOODBANK_COORDS, haversineKm, resolveCoords } from "../geo";
+import { BLOODBANK_COORDS, haversineKm, resolveCoords, formatDistance } from "../geo";
 import { DriveCardsSkeleton } from "./Skeleton";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -1366,6 +1366,9 @@ export default function DonorDrivesPanel() {
                       )}
                       <div style={{ fontFamily: BL.mono, fontSize: 10, color: BL.muted, letterSpacing: 0.4 }}>
                         {item.date}{item.startTime ? ` · ${item.startTime}${item.endTime ? `–${item.endTime}` : ""}` : ""}
+                        {item._distanceKm != null && (
+                          <span style={{ color: BL.red, fontWeight: 600 }}>{" · "}{formatDistance(item._distanceKm)} away</span>
+                        )}
                       </div>
                     </div>
                     <div style={{ display: "flex", gap: 6, alignItems: "center", marginLeft: 10, flexShrink: 0 }}>

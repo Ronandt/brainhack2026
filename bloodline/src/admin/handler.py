@@ -146,6 +146,8 @@ def _donor_segments():
             segments["neverDonated"].append(entry)
             continue
 
+        # Stored dates may be tz-aware (…+00:00) or naive — normalise to UTC so the
+        # subtraction below can't raise "can't subtract offset-naive and offset-aware".
         try:
             last_dt = datetime.fromisoformat(last)
         except ValueError:
@@ -153,6 +155,7 @@ def _donor_segments():
             continue
         if last_dt.tzinfo is None:
             last_dt = last_dt.replace(tzinfo=timezone.utc)
+
         days_since = (today - last_dt).days
         if days_since <= ELIGIBILITY_DAYS:
             segments["active"].append(entry)
