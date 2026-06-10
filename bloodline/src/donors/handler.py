@@ -128,7 +128,7 @@ def _get_donor(donor_id: str, email: str | None = None) -> dict:
 
 
 def _update_donor(donor_id: str, body: dict, email: str | None = None) -> dict:
-    allowed_fields = {"name", "bloodType", "postalCode", "pushToken", "lastDonatedAt", "department", "phone", "email", "gender"}
+    allowed_fields = {"name", "bloodType", "postalCode", "pushToken", "pushSubscription", "lastDonatedAt", "department", "phone", "email", "gender"}
     updates = {k: v for k, v in body.items() if k in allowed_fields}
 
     # Always keep the donor's contact email in sync with their Cognito identity

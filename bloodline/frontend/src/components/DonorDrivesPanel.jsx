@@ -844,7 +844,7 @@ export default function DonorDrivesPanel() {
   const [loading,      setLoading]      = useState(true);
   const [error,        setError]        = useState("");
   const [sessionTab,   setSessionTab]   = useState("all");
-  const [locationFilter, setLocationFilter] = useState("all"); // "all" | "nearby"
+  const [locationFilter, setLocationFilter] = useState("all"); // "all" | radius km (5 | 10 | 15)
   const [userCoords,   setUserCoords]   = useState(null);
   const [locError,     setLocError]     = useState("");
   const [geoCache,     setGeoCache]     = useState({}); // location name → {lat,lng} | null
@@ -935,18 +935,20 @@ export default function DonorDrivesPanel() {
     return () => { cancelled = true; };
   }, [items, geoCache]);
 
-  function requestNearby() {
+  function requestNearby(radiusKm) {
     if (!navigator.geolocation) { setLocError("Geolocation not supported by your browser."); return; }
     setLocError("");
     navigator.geolocation.getCurrentPosition(
-      pos => { setUserCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude }); setLocationFilter("nearby"); },
+      pos => { setUserCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude }); setLocationFilter(radiusKm); },
       ()  => { setLocError("Location access denied. Enable it in browser settings."); }
     );
   }
 
   function handleFilterToggle(f) {
-    if (f === "nearby") { requestNearby(); return; }
-    setLocationFilter("all");
+    if (f === "all") { setLocationFilter("all"); return; }
+    // f is a radius in km — reuse the existing location fix if we already have one
+    if (userCoords) { setLocationFilter(f); return; }
+    requestNearby(f);
   }
 
   // When coords are available, sort everything by distance (nearest first).
@@ -972,8 +974,8 @@ export default function DonorDrivesPanel() {
     return { ...item, _distanceKm: distanceKm };
   });
 
-  const filteredItems = locationFilter === "nearby" && userCoords
-    ? itemsWithDistance.filter(item => item._distanceKm != null && item._distanceKm <= 5)
+  const filteredItems = typeof locationFilter === "number" && userCoords
+    ? itemsWithDistance.filter(item => item._distanceKm != null && item._distanceKm <= locationFilter)
     : itemsWithDistance;
 
   // Sort by proximity (nearest first) once we know where the donor is; sessions
@@ -1094,7 +1096,7 @@ export default function DonorDrivesPanel() {
               ← Back
             </button>
           )}
-          {sessionTab !== "slot" && [["all", "All"], ["nearby", "Within 5 km"]].map(([val, label]) => (
+          {sessionTab !== "slot" && [["all", "All"], [5, "Within 5 km"], [10, "Within 10 km"], [15, "Within 15 km"]].map(([val, label]) => (
             <button
               key={val}
               onClick={() => handleFilterToggle(val)}
@@ -1174,7 +1176,7 @@ export default function DonorDrivesPanel() {
         <>
           {!loading && displayItems.length === 0 && (
             <div style={{ fontFamily: BL.sans, color: BL.faint, fontSize: 13, marginBottom: 12 }}>
-              {locationFilter === "nearby" ? "No sessions within 5 km of your location." : "No upcoming sessions found."}
+              {typeof locationFilter === "number" ? `No sessions within ${locationFilter} km of your location.` : "No upcoming sessions found."}
             </div>
           )}
 

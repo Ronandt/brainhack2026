@@ -1,1 +1,2 @@
 aws-lambda-powertools>=2.30.0
+ecdsa>=0.18.0

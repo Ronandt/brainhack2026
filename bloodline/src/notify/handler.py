@@ -1,7 +1,12 @@
+import base64
 import html
 import json
 import math
 import os
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
 from datetime import datetime, timedelta, timezone
 
 import boto3
@@ -18,6 +23,12 @@ donors_table = dynamodb.Table(os.environ["DONORS_TABLE"])
 alerts_table = dynamodb.Table(os.environ["ALERTS_TABLE"])
 hospitals_table = dynamodb.Table(os.environ.get("HOSPITALS_TABLE", "bloodline-hospitals-dev"))
 SENDER_EMAIL = os.environ.get("SENDER_EMAIL", "")
+
+# VAPID (Web Push). Bodyless pushes — the service worker renders the text, so we
+# only need to sign the VAPID JWT (ES256) and POST to each subscription endpoint.
+VAPID_PRIVATE_KEY = os.environ.get("VAPID_PRIVATE_KEY", "")
+VAPID_PUBLIC_KEY = os.environ.get("VAPID_PUBLIC_KEY", "")
+VAPID_SUBJECT = os.environ.get("VAPID_SUBJECT", "mailto:bloodlineapps@gmail.com")
 # Public donor-app URL used as the email call-to-action target (blank → no link)
 APP_URL = os.environ.get("APP_URL", "")
 # SMS is a billable, outward-facing channel — opt-in via env flag (default off)
@@ -162,9 +173,8 @@ def _dispatch_notifications(message: dict) -> None:
     push_sent = 0
     sms_sent = 0
     for donor in donors:
-        push_token = donor.get("pushToken")
-        if push_token:
-            _send_push(push_token, blood_label, alert_message, alert_id)
+        sub = donor.get("pushSubscription")
+        if sub and _send_web_push(sub, alert_id):
             push_sent += 1
 
         email = donor.get("email")
@@ -206,6 +216,59 @@ def _send_push(push_token: str, blood_type: str, message: str, alert_id: str) ->
     # TODO: Replace with real push delivery:
     # sns_client.publish(TargetArn=push_token, Message=message, ...)
     # or: requests.post("https://exp.host/--/api/v2/push/send", ...)
+
+
+def _b64url(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
+
+
+def _b64url_decode(s: str) -> bytes:
+    return base64.urlsafe_b64decode(s + "=" * (-len(s) % 4))
+
+
+def _vapid_jwt(audience: str) -> str:
+    """Sign a VAPID JWT (ES256) with the private key, using pure-Python ecdsa."""
+    import hashlib
+
+    import ecdsa
+
+    header = _b64url(json.dumps({"typ": "JWT", "alg": "ES256"}).encode())
+    claims = _b64url(json.dumps({
+        "aud": audience,
+        "exp": int(time.time()) + 12 * 3600,
+        "sub": VAPID_SUBJECT,
+    }).encode())
+    signing_input = f"{header}.{claims}".encode()
+    sk = ecdsa.SigningKey.from_string(_b64url_decode(VAPID_PRIVATE_KEY), curve=ecdsa.NIST256p, hashfunc=hashlib.sha256)
+    sig = sk.sign_deterministic(signing_input, hashfunc=hashlib.sha256)  # raw r||s (64 bytes)
+    return f"{signing_input.decode()}.{_b64url(sig)}"
+
+
+def _send_web_push(subscription: dict, alert_id: str) -> bool:
+    """Send a bodyless Web Push to one subscription. Returns True on accept."""
+    if not (VAPID_PRIVATE_KEY and VAPID_PUBLIC_KEY):
+        logger.warning("VAPID keys not configured — skipping web push", alert_id=alert_id)
+        return False
+    endpoint = (subscription or {}).get("endpoint")
+    if not endpoint:
+        return False
+
+    parsed = urllib.parse.urlparse(endpoint)
+    audience = f"{parsed.scheme}://{parsed.netloc}"
+    try:
+        jwt = _vapid_jwt(audience)
+        req = urllib.request.Request(endpoint, data=b"", method="POST")
+        req.add_header("Authorization", f"vapid t={jwt}, k={VAPID_PUBLIC_KEY}")
+        req.add_header("TTL", "86400")
+        with urllib.request.urlopen(req, timeout=5) as resp:  # noqa: S310 (push service endpoint)
+            return resp.status in (200, 201, 202)
+    except urllib.error.HTTPError as e:
+        # 404/410 = subscription gone; caller may prune it later
+        logger.info("Web push rejected", alert_id=alert_id, code=e.code)
+        return False
+    except Exception:
+        logger.exception("Web push error", alert_id=alert_id)
+        return False
 
 
 def _badge_font_size(label: str) -> int:
