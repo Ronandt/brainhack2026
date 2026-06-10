@@ -71,10 +71,38 @@ def lambda_handler(event: dict, context: LambdaContext) -> dict:
         return _list_notifications(event)
 
     # Legacy donor bookings for drives
+    if "/book/" in path and method == "DELETE":
+        return _cancel_drive_booking(event)
     if "/book" in path and method == "POST":
         return _create_booking(event)
 
     return _response(404, {"error": "Not found"})
+
+
+def _cancel_drive_booking(event: dict) -> dict:
+    donor_id = _donor_id_from_event(event)
+    drive_id = (event.get("pathParameters") or {}).get("driveId")
+    if not drive_id:
+        return _response(400, {"error": "driveId is required"})
+
+    existing = bookings_table.get_item(Key={"donorId": donor_id, "driveId": drive_id})
+    if not existing.get("Item"):
+        return _response(404, {"error": "Booking not found"})
+
+    bookings_table.delete_item(Key={"donorId": donor_id, "driveId": drive_id})
+
+    # Free the seat on the drive
+    drive = drives_table.get_item(Key={"driveId": drive_id}).get("Item")
+    if drive:
+        new_booked = max(int(drive.get("booked", 0)) - 1, 0)
+        drives_table.update_item(
+            Key={"driveId": drive_id},
+            UpdateExpression="SET booked = :b",
+            ExpressionAttributeValues={":b": new_booked},
+        )
+
+    logger.info("Drive booking cancelled", donor_id=donor_id, drive_id=drive_id)
+    return _response(200, {"driveId": drive_id, "status": "cancelled"})
 
 
 def _list_my_bookings(event: dict) -> dict:

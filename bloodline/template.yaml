@@ -624,6 +624,12 @@ Resources:
             RestApiId: !Ref BloodlineApi
             Path: /api/v1/schedule/book
             Method: POST
+        CancelDriveBooking:
+          Type: Api
+          Properties:
+            RestApiId: !Ref BloodlineApi
+            Path: /api/v1/schedule/book/{driveId}
+            Method: DELETE
         ListMyDrives:
           Type: Api
           Properties:

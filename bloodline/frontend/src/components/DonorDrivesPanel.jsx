@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from "react";
-import { getDrives, getSlots, createBooking, bookSlot, cancelSlotBooking, getMyBookings, createDrive, getMyDrives, getNotifications, markNotificationRead , getDonor} from "../api";
+import { getDrives, getSlots, createBooking, bookSlot, cancelSlotBooking, cancelDriveBooking, getMyBookings, createDrive, getMyDrives, getNotifications, markNotificationRead , getDonor} from "../api";
 import { BL } from "../tokens";
 import { BLOODBANK_COORDS, haversineKm, resolveCoords, formatDistance } from "../geo";
 import { DriveCardsSkeleton } from "./Skeleton";
@@ -977,11 +977,13 @@ export default function DonorDrivesPanel() {
     (async () => {
       for (const loc of pending) {
         try {
-          const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=sg&q=${encodeURIComponent(loc)}`);
-          const data = res.ok ? await res.json() : [];
+          // OneMap (Singapore gov) — CORS-friendly, unlike Nominatim which blocks
+          // browser origins and rate-limits (429).
+          const res = await fetch(`https://www.onemap.gov.sg/api/common/elastic/search?searchVal=${encodeURIComponent(loc)}&returnGeom=Y&getAddrDetails=N&pageNum=1`);
+          const data = res.ok ? await res.json() : {};
           if (cancelled) return;
-          const hit = data[0];
-          setGeoCache(prev => ({ ...prev, [loc]: hit ? { lat: Number(hit.lat), lng: Number(hit.lon) } : null }));
+          const hit = (data.results || [])[0];
+          setGeoCache(prev => ({ ...prev, [loc]: hit ? { lat: Number(hit.LATITUDE), lng: Number(hit.LONGITUDE) } : null }));
         } catch {
           if (cancelled) return;
           setGeoCache(prev => ({ ...prev, [loc]: null }));
@@ -1081,11 +1083,12 @@ export default function DonorDrivesPanel() {
   }
 
   async function cancelBooking(id, type) {
-    // Slot bookings persist server-side — must be deleted there, or re-booking
-    // hits "you already have a booking for this slot". Drive bookings are local-only.
-    if (type === "slot" && id) {
+    // Both slot and drive bookings persist server-side and must be deleted there,
+    // or re-booking hits "you already have a booking" / the row reappears on reload.
+    if (id) {
       try {
-        await cancelSlotBooking(id);
+        if (type === "slot") await cancelSlotBooking(id);
+        else await cancelDriveBooking(id);
       } catch (e) {
         const gone = e.message?.includes("not found") || e.message?.includes("404");
         if (!gone) {
@@ -1209,7 +1212,7 @@ export default function DonorDrivesPanel() {
               <div style={{ fontFamily: BL.sans, fontSize: 11, color: BL.muted, marginTop: 1 }}>Cancel to change your appointment</div>
             </div>
           </div>
-          <button onClick={cancelBooking} style={{
+          <button onClick={() => { const e = Object.entries(booked)[0]; if (e) cancelBooking(e[0], e[1]); }} style={{
             background: "#fff", border: "none", borderRadius: 8,
             color: BL.need.ok.fg, fontFamily: BL.sans, fontSize: 12, fontWeight: 600,
             padding: "6px 14px", cursor: "pointer", flexShrink: 0,
@@ -1310,6 +1313,9 @@ export default function DonorDrivesPanel() {
                           <div style={{ fontFamily: BL.sans, fontSize: 14, fontWeight: 600, color: BL.ink }}>{drive.name}</div>
                           <div style={{ fontFamily: BL.mono, fontSize: 10, color: BL.muted, marginTop: 2 }}>
                             {drive.date}{drive.location ? ` · ${drive.location}` : ""}
+                          </div>
+                          <div style={{ fontFamily: BL.mono, fontSize: 10, color: BL.ink, marginTop: 3 }}>
+                            {drive.booked ?? 0} / {drive.capacity ?? "?"} joined
                           </div>
                         </div>
                         <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>

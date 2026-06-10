@@ -46,6 +46,8 @@ export const getDrives = (bloodType) =>
 export const getMyBookings = () => request("/api/v1/schedule/bookings");
 export const createBooking = (body) =>
   request("/api/v1/schedule/book", { method: "POST", body: JSON.stringify(body) });
+export const cancelDriveBooking = (driveId) =>
+  request(`/api/v1/schedule/book/${driveId}`, { method: "DELETE" });
 
 // Hospital — profile & directory
 export const getHospitals = () => request("/api/v1/hospitals");
