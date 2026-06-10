@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from "react";
-import { getDrives, getSlots, createBooking, bookSlot, cancelSlotBooking, getMyBookings, createDrive } from "../api";
+import { getDrives, getSlots, createBooking, bookSlot, cancelSlotBooking, getMyBookings, createDrive, getMyDrives, getNotifications, markNotificationRead } from "../api";
 import { BL } from "../tokens";
 import { BLOODBANK_COORDS, haversineKm, resolveCoords } from "../geo";
 import { DriveCardsSkeleton } from "./Skeleton";
@@ -12,9 +12,9 @@ const ORGANIZER_NAME   = "Bryan";
 const TARGET_RSVPS     = 18;
 const DEFAULT_MAP_CENTER = { lat: 1.3521, lng: 103.8198 };
 const SESSION_TABS     = [
-  { id: "all", label: "All" },
-  { id: "drive", label: "Drives" },
-  { id: "slot", label: "Bloodbank" },
+  { id: "request", label: "Request"   },
+  { id: "drives",  label: "Drives"    },
+  { id: "slot",    label: "Bloodbank" },
 ];
 const MAPCN_STYLE_URL   = "https://tiles.openfreemap.org/styles/liberty";
 const MAPLIBRE_JS_URL   = "https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js";
@@ -877,7 +877,7 @@ export default function DonorDrivesPanel() {
   const [items,        setItems]        = useState([]);
   const [loading,      setLoading]      = useState(true);
   const [error,        setError]        = useState("");
-  const [sessionTab,   setSessionTab]   = useState("all");
+  const [sessionTab,   setSessionTab]   = useState("request");
   const [locationFilter, setLocationFilter] = useState("all"); // "all" | radius km (5 | 10 | 15)
   const [userCoords,   setUserCoords]   = useState(null);
   const [locError,     setLocError]     = useState("");
@@ -887,6 +887,9 @@ export default function DonorDrivesPanel() {
   const [squadItem,    setSquadItem]    = useState(null);
   const [selectedBank, setSelectedBank] = useState(null);
   const [bbDateStr,    setBbDateStr]    = useState(todayISO());
+  const [myDrives,          setMyDrives]          = useState([]);
+  const [notifications,     setNotifications]     = useState([]);
+  const [dismissedDriveIds, setDismissedDriveIds] = useState(new Set());
 
   // Generate next 7 date options for the bloodbank date filter
   const bbDateOptions = useMemo(() => {
@@ -897,6 +900,8 @@ export default function DonorDrivesPanel() {
   useEffect(() => {
     loadAll();
     refreshBookings();
+    getMyDrives().then(d => setMyDrives(d.drives ?? [])).catch(() => {});
+    getNotifications().then(d => setNotifications(d.notifications ?? [])).catch(() => {});
     // Silently fetch geolocation on mount so distance sorting is ready immediately
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
@@ -995,8 +1000,10 @@ export default function DonorDrivesPanel() {
     return (a.date ?? "").localeCompare(b.date ?? "");
   };
 
-  const tabItems = (sessionTab === "all" ? items : items.filter(item => item._type === sessionTab))
-    .slice().sort(byDistance);
+  const tabItems = (
+    sessionTab === "drives" ? items.filter(item => item._type === "drive") :
+    sessionTab === "slot"   ? items.filter(item => item._type === "slot")  : []
+  ).slice().sort(byDistance);
 
   // Attach a distance (km) to each session from the donor's location, resolving
   // bloodbank slots via their location name.
@@ -1023,10 +1030,14 @@ export default function DonorDrivesPanel() {
     : filteredItems;
 
   const sessionCounts = useMemo(() => ({
-    all: items.length,
-    drive: items.filter(item => item._type === "drive").length,
-    slot: items.filter(item => item._type === "slot").length,
-  }), [items]);
+    request: myDrives.filter(d => !dismissedDriveIds.has(d.driveId)).length || undefined,
+    drives:  items.filter(item => item._type === "drive").length,
+    slot:    items.filter(item => item._type === "slot").length,
+  }), [items, myDrives, dismissedDriveIds]);
+
+  function dismissDrive(driveId) {
+    setDismissedDriveIds(prev => new Set([...prev, driveId]));
+  }
 
   const isBooked = Object.keys(booked).length > 0;
 
@@ -1128,7 +1139,7 @@ export default function DonorDrivesPanel() {
               ← Back
             </button>
           )}
-          {sessionTab !== "slot" && [["all", "All"], [5, "Within 5 km"], [10, "Within 10 km"], [15, "Within 15 km"]].map(([val, label]) => (
+          {sessionTab === "drives" && [["all", "All"], [5, "Within 5 km"], [10, "10 km"], [15, "15 km"]].map(([val, label]) => (
             <button
               key={val}
               onClick={() => handleFilterToggle(val)}
@@ -1190,9 +1201,9 @@ export default function DonorDrivesPanel() {
         </div>
       )}
 
-      {locError && <div style={{ fontFamily: BL.sans, fontSize: 12, color: BL.need.critical.fg, marginBottom: 10 }}>{locError}</div>}
+      {locError && sessionTab === "drives" && <div style={{ fontFamily: BL.sans, fontSize: 12, color: BL.need.critical.fg, marginBottom: 10 }}>{locError}</div>}
 
-      {loading && sessionTab !== "slot" && <DriveCardsSkeleton />}
+      {loading && sessionTab === "drives" && <DriveCardsSkeleton />}
       {error   && <div style={{ fontFamily: BL.sans, color: BL.need.critical.fg, fontSize: 13, marginBottom: 12 }}>{error}</div>}
 
       {/* ── Bloodbank tab ───────────────────────────────────────────── */}
@@ -1216,23 +1227,115 @@ export default function DonorDrivesPanel() {
         )
       )}
 
-      {/* ── Drives / All tab ────────────────────────────────────────── */}
-      {sessionTab !== "slot" && (
-        <div style={{ marginBottom: 18 }}>
-          <HostDriveBubble />
-        </div>
+      {/* ── Request tab ─────────────────────────────────────────────── */}
+      {sessionTab === "request" && (
+        <>
+          {/* Unread notifications */}
+          {notifications.filter(n => !n.read).map(n => {
+            const isApproved = n.type === "drive_approved";
+            const accent = isApproved ? BL.need.ok : BL.need.critical;
+            return (
+              <div key={n.notifId} style={{
+                background: accent.bg, borderRadius: 12, padding: "10px 14px",
+                marginBottom: 10, display: "flex", justifyContent: "space-between", alignItems: "flex-start",
+                boxShadow: `0 0 0 1px ${accent.fg}22`,
+              }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontFamily: BL.sans, fontSize: 13, color: BL.ink, lineHeight: 1.4 }}>{n.message}</div>
+                  {n.reason && <div style={{ fontFamily: BL.sans, fontSize: 12, color: BL.muted, marginTop: 3 }}>Reason: {n.reason}</div>}
+                </div>
+                <button
+                  onClick={() => {
+                    markNotificationRead(n.notifId).catch(() => {});
+                    setNotifications(prev => prev.map(x => x.notifId === n.notifId ? { ...x, read: true } : x));
+                  }}
+                  style={{ background: "none", border: "none", cursor: "pointer", color: BL.muted, fontSize: 16, marginLeft: 10, flexShrink: 0, padding: 0 }}
+                >✕</button>
+              </div>
+            );
+          })}
+
+          {/* Host-a-drive form */}
+          <div style={{ marginBottom: 20 }}>
+            <HostDriveBubble />
+          </div>
+
+          {/* My drive requests */}
+          {(() => {
+            const STATUS_MAP = {
+              pending_approval:          { label: "Waiting for HSA",   fg: BL.muted,            bg: BL.fill       },
+              pending_redcross_approval: { label: "Sent to Red Cross", fg: "#b86a00",           bg: "#fff4e0"      },
+              redcross_rejected:         { label: "Red Cross declined",fg: BL.need.critical.fg, bg: BL.need.critical.bg },
+              rejected:                  { label: "Declined",          fg: BL.need.critical.fg, bg: BL.need.critical.bg },
+              upcoming:                  { label: "Approved — live!",  fg: BL.need.ok.fg,       bg: BL.need.ok.bg  },
+              cancelled:                 { label: "Cancelled",         fg: BL.faint,            bg: BL.fill        },
+            };
+            const visible = myDrives.filter(d => !dismissedDriveIds.has(d.driveId));
+            const isDismissable = s => ["rejected", "redcross_rejected", "cancelled"].includes(s);
+            if (visible.length === 0 && myDrives.length === 0) return null;
+            return (
+              <div>
+                <div style={{ fontFamily: BL.mono, fontSize: 10, color: BL.muted, letterSpacing: 0.8, textTransform: "uppercase", marginBottom: 8 }}>
+                  My requests
+                </div>
+                {visible.length === 0 ? (
+                  <div style={{ fontFamily: BL.sans, fontSize: 13, color: BL.faint }}>All cleared.</div>
+                ) : visible.map(drive => {
+                  const badge = STATUS_MAP[drive.status] ?? { label: drive.status, fg: BL.muted, bg: BL.fill };
+                  const canDismiss = isDismissable(drive.status);
+                  return (
+                    <div key={drive.driveId} style={{
+                      background: BL.card, borderRadius: 12, padding: "12px 14px", marginBottom: 8,
+                      boxShadow: "0 1px 8px rgba(0,0,0,0.05), 0 0 0 1px rgba(0,0,0,0.04)",
+                    }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontFamily: BL.sans, fontSize: 14, fontWeight: 600, color: BL.ink }}>{drive.name}</div>
+                          <div style={{ fontFamily: BL.mono, fontSize: 10, color: BL.muted, marginTop: 2 }}>
+                            {drive.date}{drive.location ? ` · ${drive.location}` : ""}
+                          </div>
+                        </div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+                          <span style={{
+                            fontFamily: BL.mono, fontSize: 9, letterSpacing: 0.5, textTransform: "uppercase",
+                            fontWeight: 700, background: badge.bg, color: badge.fg, padding: "3px 8px", borderRadius: 6,
+                          }}>{badge.label}</span>
+                          {canDismiss && (
+                            <button
+                              onClick={() => dismissDrive(drive.driveId)}
+                              title="Clear"
+                              style={{ background: "none", border: "none", cursor: "pointer", color: BL.faint, fontSize: 15, padding: 0, lineHeight: 1 }}
+                            >✕</button>
+                          )}
+                        </div>
+                      </div>
+                      {drive.status === "redcross_rejected" && drive.redCrossRejectedReason && (
+                        <div style={{ marginTop: 8, padding: "7px 10px", background: BL.need.critical.bg, borderRadius: 8, fontFamily: BL.sans, fontSize: 12, color: BL.need.critical.fg, lineHeight: 1.4 }}>
+                          Red Cross: {drive.redCrossRejectedReason}
+                        </div>
+                      )}
+                      {drive.status === "rejected" && (
+                        <div style={{ marginTop: 8, padding: "7px 10px", background: BL.need.critical.bg, borderRadius: 8, fontFamily: BL.sans, fontSize: 12, color: BL.need.critical.fg }}>
+                          This request was not approved by HSA.
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })()}
+        </>
       )}
+
+      {/* ── Drives tab ──────────────────────────────────────────────── */}
+      {sessionTab === "drives" && (
         <>
           {!loading && displayItems.length === 0 && (
             <div style={{ fontFamily: BL.sans, color: BL.faint, fontSize: 13, marginBottom: 12 }}>
-              {typeof locationFilter === "number" ? `No sessions within ${locationFilter} km of your location.` : "No upcoming sessions found."}
+              {typeof locationFilter === "number" ? `No drives within ${locationFilter} km of your location.` : "No upcoming drives found."}
             </div>
           )}
-
-          <div style={{ marginBottom: 18 }}>
-            <HostDriveBubble onInviteSent={addHostedDrive} />
-          </div>
-
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             {displayItems.map(item => {
               const pct           = item.capacity > 0 ? (item.booked / item.capacity) * 100 : 0;
@@ -1241,7 +1344,6 @@ export default function DonorDrivesPanel() {
               const isOtherBooked = isBooked && !isThisBooked;
               const bs            = bookingState[item._id] ?? {};
               const badge         = TYPE_BADGE[item._type] ?? TYPE_BADGE.drive;
-
               return (
                 <div
                   key={item._id}
@@ -1290,7 +1392,7 @@ export default function DonorDrivesPanel() {
                       <button onClick={() => cancelBooking(item._id, item._type)} style={{ background: "#fff", border: "none", borderRadius: 8, color: BL.muted, fontFamily: BL.sans, fontSize: 12, padding: "5px 14px", cursor: "pointer", boxShadow: "0 1px 4px rgba(0,0,0,0.08)" }}>Cancel</button>
                     </div>
                   ) : isOtherBooked ? (
-                    <div style={{ fontFamily: BL.sans, fontSize: 12, color: BL.faint }}>Cancel your current booking to {item._type === "slot" ? "book" : "RSVP"} here</div>
+                    <div style={{ fontFamily: BL.sans, fontSize: 12, color: BL.faint }}>Cancel your current booking to RSVP here</div>
                   ) : (
                     <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                       <button onClick={() => book(item)} disabled={bs.loading} style={{ padding: "10px 20px", background: BL.ink, color: "#fff", border: "none", borderRadius: 10, fontFamily: BL.sans, fontSize: 13, fontWeight: 600, cursor: bs.loading ? "default" : "pointer", opacity: bs.loading ? 0.5 : 1, minHeight: 40 }}>

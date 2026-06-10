@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { getPendingDrives, approveDrive, rejectDrive } from "../../api";
+import { getPendingDrives, approveDrive, rejectDrive, notifyDonorOfRejection } from "../../api";
 import { BL } from "../../tokens";
 import { GenericPanelSkeleton } from "../Skeleton";
 
@@ -15,9 +15,9 @@ function Tag({ children, color, bg }) {
   );
 }
 
-function W({ children, style, pad = 16 }) {
+function Card({ children, style, pad = 16 }) {
   return (
-    <div style={{ background: BL.card, border: `1px solid ${BL.hair}`, borderRadius: 6, padding: pad, ...style }}>
+    <div style={{ background: BL.card, boxShadow: "0 1px 10px rgba(0,0,0,0.06), 0 0 0 1px rgba(0,0,0,0.04)", borderRadius: 14, padding: pad, ...style }}>
       {children}
     </div>
   );
@@ -37,6 +37,7 @@ export default function DrivesPanel() {
   const [drives,      setDrives]      = useState([]);
   const [loading,     setLoading]     = useState(true);
   const [actionState, setActionState] = useState({});
+  const [notifyState, setNotifyState] = useState({});
 
   useEffect(() => {
     getPendingDrives()
@@ -56,6 +57,16 @@ export default function DrivesPanel() {
     }
   }
 
+  async function handleNotifyDonor(driveId) {
+    setNotifyState(prev => ({ ...prev, [driveId]: { loading: true } }));
+    try {
+      await notifyDonorOfRejection(driveId);
+      setNotifyState(prev => ({ ...prev, [driveId]: { done: true } }));
+    } catch (e) {
+      setNotifyState(prev => ({ ...prev, [driveId]: { error: e.message } }));
+    }
+  }
+
   if (loading) return <GenericPanelSkeleton rows={4} />;
 
   return (
@@ -67,7 +78,7 @@ export default function DrivesPanel() {
             Community drive queue
           </div>
           <div style={{ fontFamily: BL.sans, fontSize: 13, color: BL.muted, marginTop: 4 }}>
-            {loading ? "Loading…" : `${drives.length} request${drives.length !== 1 ? "s" : ""} needing HSA review · approve to send to Red Cross, decline, or request edits.`}
+            {`${drives.length} request${drives.length !== 1 ? "s" : ""} needing HSA review · approve to send to Red Cross, decline, or request edits.`}
           </div>
         </div>
         <div style={{ display: "flex", gap: 6 }}>
@@ -89,7 +100,7 @@ export default function DrivesPanel() {
           const reqNum = 8120 + i;
 
           return (
-            <W key={drive.driveId} pad={16}>
+            <Card key={drive.driveId} pad={16}>
               {/* Card header */}
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
                 <div>
@@ -144,17 +155,31 @@ export default function DrivesPanel() {
                   </div>
                 )}
                 {drive.redCrossRejectedReason && (
-                  <div style={{ background: BL.redSoft, border: `1px solid ${BL.red}33`, borderRadius: 5, padding: 9 }}>
+                  <div style={{ background: BL.redSoft, boxShadow: `0 0 0 1px ${BL.red}30`, borderRadius: 10, padding: 9 }}>
                     <Tag color={BL.red}>Red Cross reason</Tag>
                     <div style={{ fontFamily: BL.sans, fontSize: 12, color: BL.redInk, marginTop: 3, lineHeight: 1.4 }}>
                       {drive.redCrossRejectedReason}
                     </div>
+                    {(() => {
+                      const ns = notifyState[drive.driveId] ?? {};
+                      return ns.done ? (
+                        <div style={{ fontFamily: BL.sans, fontSize: 11, color: BL.need.ok.fg, marginTop: 8 }}>✓ Donor notified</div>
+                      ) : (
+                        <button
+                          onClick={() => handleNotifyDonor(drive.driveId)}
+                          disabled={ns.loading}
+                          style={{ ...outlineBtn, marginTop: 8, borderColor: BL.red, color: BL.red, fontSize: 11 }}
+                        >
+                          {ns.loading ? "Notifying…" : "Notify donor"}
+                        </button>
+                      );
+                    })()}
                   </div>
                 )}
               </div>
 
               {/* Forecast fit */}
-              <div style={{ marginTop: 10, padding: "8px 10px", background: BL.fill, borderRadius: 4 }}>
+              <div style={{ marginTop: 10, padding: "8px 10px", background: BL.fill, borderRadius: 10 }}>
                 <Tag>Forecast fit</Tag>
                 <div style={{ fontFamily: BL.sans, fontSize: 12, color: BL.ink, marginTop: 3, lineHeight: 1.4 }}>{fit}</div>
               </div>
@@ -189,7 +214,7 @@ export default function DrivesPanel() {
                 </div>
               )}
               {as.error && <div style={{ fontFamily: BL.sans, color: BL.need.critical.fg, fontSize: 12, marginTop: 6 }}>{as.error}</div>}
-            </W>
+            </Card>
           );
         })}
       </div>
@@ -198,14 +223,15 @@ export default function DrivesPanel() {
 }
 
 const softBtn = {
-  height: 28, padding: "0 10px", background: BL.fill, border: `1px solid ${BL.hair}`,
-  borderRadius: 6, fontFamily: BL.sans, fontSize: 12, color: BL.ink, cursor: "pointer",
+  height: 28, padding: "0 10px", background: BL.fill, border: "none",
+  boxShadow: "0 0 0 1px rgba(0,0,0,0.08)",
+  borderRadius: 8, fontFamily: BL.sans, fontSize: 12, color: BL.ink, cursor: "pointer",
 };
 const outlineBtn = {
   height: 28, padding: "0 10px", background: "transparent", border: `1px solid ${BL.muted}`,
-  borderRadius: 6, fontFamily: BL.sans, fontSize: 12, color: BL.muted, cursor: "pointer",
+  borderRadius: 8, fontFamily: BL.sans, fontSize: 12, color: BL.muted, cursor: "pointer",
 };
 const fillBtn = {
   height: 28, padding: "0 14px", background: BL.ink, border: `1px solid ${BL.ink}`,
-  borderRadius: 6, fontFamily: BL.sans, fontSize: 12, color: "#fff", cursor: "pointer",
+  borderRadius: 8, fontFamily: BL.sans, fontSize: 12, color: "#fff", cursor: "pointer",
 };

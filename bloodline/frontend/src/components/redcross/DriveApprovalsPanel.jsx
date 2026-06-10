@@ -14,9 +14,9 @@ function Tag({ children, color, bg }) {
   );
 }
 
-function W({ children }) {
+function Card({ children }) {
   return (
-    <div style={{ background: BL.card, border: `1px solid ${BL.hair}`, borderRadius: 6, padding: 16 }}>
+    <div style={{ background: BL.card, boxShadow: "0 1px 10px rgba(0,0,0,0.06), 0 0 0 1px rgba(0,0,0,0.04)", borderRadius: 14, padding: 16 }}>
       {children}
     </div>
   );
@@ -85,7 +85,7 @@ export default function DriveApprovalsPanel() {
         {drives.map(drive => {
           const as = actionState[drive.driveId] ?? {};
           return (
-            <W key={drive.driveId}>
+            <Card key={drive.driveId}>
               <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start" }}>
                 <div>
                   <Tag>HSA approved</Tag>
@@ -122,7 +122,7 @@ export default function DriveApprovalsPanel() {
               </div>
 
               {drive.notes && (
-                <div style={{ marginTop: 10, padding: "8px 10px", background: BL.fill, borderRadius: 4 }}>
+                <div style={{ marginTop: 10, padding: "8px 10px", background: BL.fill, borderRadius: 10 }}>
                   <Tag>Admin context</Tag>
                   <div style={{ fontFamily: BL.sans, fontSize: 12, color: BL.ink, marginTop: 3, lineHeight: 1.4 }}>{drive.notes}</div>
                 </div>
@@ -132,7 +132,7 @@ export default function DriveApprovalsPanel() {
                 value={reasons[drive.driveId] ?? ""}
                 onChange={e => setReasons(prev => ({ ...prev, [drive.driveId]: e.target.value }))}
                 placeholder="Reason required if rejecting"
-                style={{ width: "100%", boxSizing: "border-box", minHeight: 68, marginTop: 12, padding: 10, border: `1px solid ${BL.hair}`, borderRadius: 6, fontFamily: BL.sans, fontSize: 12, color: BL.ink, resize: "vertical" }}
+                style={{ width: "100%", boxSizing: "border-box", minHeight: 68, marginTop: 12, padding: 10, border: `1px solid ${BL.hair}`, borderRadius: 10, fontFamily: BL.sans, fontSize: 12, color: BL.ink, resize: "vertical" }}
               />
 
               <div style={{ display: "flex", gap: 6, marginTop: 10 }}>
@@ -145,7 +145,7 @@ export default function DriveApprovalsPanel() {
               </div>
               {as.done && <div style={{ fontFamily: BL.sans, fontSize: 12, color: BL.need.ok.fg, fontWeight: 500, marginTop: 8 }}>Drive {as.done}.</div>}
               {as.error && <div style={{ fontFamily: BL.sans, color: BL.need.critical.fg, fontSize: 12, marginTop: 8 }}>{as.error}</div>}
-            </W>
+            </Card>
           );
         })}
       </div>
@@ -155,9 +155,9 @@ export default function DriveApprovalsPanel() {
 
 const outlineBtn = {
   height: 30, padding: "0 12px", background: "transparent", border: `1px solid ${BL.muted}`,
-  borderRadius: 6, fontFamily: BL.sans, fontSize: 12, color: BL.muted, cursor: "pointer",
+  borderRadius: 8, fontFamily: BL.sans, fontSize: 12, color: BL.muted, cursor: "pointer",
 };
 const fillBtn = {
   height: 30, padding: "0 14px", background: BL.ink, border: `1px solid ${BL.ink}`,
-  borderRadius: 6, fontFamily: BL.sans, fontSize: 12, color: "#fff", cursor: "pointer",
+  borderRadius: 8, fontFamily: BL.sans, fontSize: 12, color: "#fff", cursor: "pointer",
 };
