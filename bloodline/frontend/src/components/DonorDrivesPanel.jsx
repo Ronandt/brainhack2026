@@ -484,43 +484,104 @@ function BloodbankSlotList({ bankName, dateStr, slots, booked, bookingState, onB
 
 function SquadRsvpModal({ item, onClose }) {
   const [copied, setCopied] = useState(false);
-  const msg = `Hey squad! Let's donate blood together 🩸\n\n${item.name || item.location}\n${item.date}${item.startTime ? ` · ${item.startTime}` : ""}\n${item.location}\n\nRSVP here: <link>`;
+  const title = item.name || item.location;
+  const when = `${dateOptionLabel(item.date)}${item.startTime ? ` · ${item.startTime}${item.endTime ? `–${item.endTime}` : ""}` : ""}`;
+  const spotsLeft = Math.max(0, (item.capacity ?? 0) - (item.booked ?? 0));
+  const msg =
+    `Hey squad! Let's donate blood together 🩸\n\n` +
+    `📍 ${title}${item.name && item.location ? ` — ${item.location}` : ""}\n` +
+    `🗓 ${when}\n\n` +
+    `Book "${title}" under Book a session in the Bloodline app. ` +
+    `Takes ~15 min and every unit can save up to 3 lives.`;
+  const waHref = `https://wa.me/?text=${encodeURIComponent(msg)}`;
 
-  function share() {
-    if (navigator.share) {
-      navigator.share({ title: "Squad blood donation", text: msg, url: "<link>" }).catch(() => {});
-    } else {
-      navigator.clipboard?.writeText(msg).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2500); });
-    }
+  function copy() {
+    navigator.clipboard?.writeText(msg).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }
+
+  function shareNative() {
+    if (navigator.share) navigator.share({ title: "Squad blood donation", text: msg }).catch(() => {});
+    else copy();
   }
 
   return (
-    <div style={{ position: "fixed", inset: 0, zIndex: 50, background: "rgba(26,25,23,0.32)", display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
-      <div style={{ width: "100%", maxWidth: 480, background: BL.card, borderRadius: "12px 12px 0 0", padding: 24, paddingBottom: "max(24px, env(safe-area-inset-bottom))" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
+    <div
+      onClick={onClose}
+      style={{ position: "fixed", inset: 0, zIndex: 50, background: "rgba(26,25,23,0.4)", display: "flex", alignItems: "flex-end", justifyContent: "center" }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{
+          width: "100%", maxWidth: 480, background: BL.paper, borderRadius: "18px 18px 0 0",
+          padding: "10px 20px 0", paddingBottom: "max(20px, env(safe-area-inset-bottom))",
+          boxShadow: "0 -8px 40px rgba(26,25,23,0.25)",
+        }}
+      >
+        {/* Grab handle */}
+        <div style={{ width: 36, height: 4, borderRadius: 2, background: BL.hair, margin: "0 auto 14px" }} />
+
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14 }}>
           <div>
-            <div style={{ fontFamily: BL.sans, fontSize: 16, fontWeight: 600, color: BL.ink, marginBottom: 3 }}>Squad RSVP</div>
-            <Tag>Invite your whole squad at once</Tag>
+            <div style={{ fontFamily: BL.sans, fontSize: 17, fontWeight: 700, color: BL.ink, letterSpacing: -0.3 }}>Invite your squad</div>
+            <div style={{ fontFamily: BL.sans, fontSize: 12, color: BL.muted, marginTop: 2 }}>Donating together doubles the show-up rate</div>
           </div>
-          <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 18, color: BL.muted, cursor: "pointer", lineHeight: 1 }}>×</button>
+          <button onClick={onClose} aria-label="Close" style={{ background: BL.fill, border: "none", borderRadius: 14, width: 28, height: 28, fontSize: 15, color: BL.muted, cursor: "pointer", lineHeight: 1 }}>×</button>
         </div>
 
-        <div style={{ background: BL.fill, borderRadius: 8, padding: 14, marginBottom: 16, fontFamily: BL.sans, fontSize: 13, color: BL.ink, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>
+        {/* Event summary card */}
+        <div style={{ background: BL.card, borderRadius: 12, padding: "12px 14px", marginBottom: 12, boxShadow: "0 1px 8px rgba(0,0,0,0.05), 0 0 0 1px rgba(0,0,0,0.04)" }}>
+          <div style={{ fontFamily: BL.sans, fontSize: 14, fontWeight: 700, color: BL.ink }}>{title}</div>
+          {item.name && item.location && (
+            <div style={{ fontFamily: BL.sans, fontSize: 12, color: BL.muted, marginTop: 2 }}>{item.location}</div>
+          )}
+          <div style={{ fontFamily: BL.mono, fontSize: 10, color: BL.muted, marginTop: 5, letterSpacing: 0.3 }}>
+            {when}
+            {item._distanceKm != null && <span style={{ color: BL.red, fontWeight: 600 }}>{" · "}{formatDistance(item._distanceKm)} away</span>}
+            {spotsLeft > 0 && <span>{" · "}{spotsLeft} spots left</span>}
+          </div>
+        </div>
+
+        {/* Message preview — chat-bubble style so it reads as "what they'll receive" */}
+        <div style={{ fontFamily: BL.mono, fontSize: 9, letterSpacing: 0.6, textTransform: "uppercase", color: BL.faint, marginBottom: 6 }}>Message preview</div>
+        <div style={{
+          background: "#e7f8d4", borderRadius: "12px 12px 12px 4px", padding: "11px 13px", marginBottom: 16,
+          fontFamily: BL.sans, fontSize: 13, color: "#2b3a20", lineHeight: 1.55, whiteSpace: "pre-wrap",
+          boxShadow: "0 1px 3px rgba(0,0,0,0.06)",
+        }}>
           {msg}
         </div>
 
-        <button
-          onClick={share}
+        {/* Actions: WhatsApp first (it's Singapore), then copy / native share */}
+        <a
+          href={waHref}
+          target="_blank"
+          rel="noreferrer"
           style={{
-            width: "100%", padding: "13px 0",
-            background: BL.ink, color: "#fff", border: "none", borderRadius: 8,
-            fontFamily: BL.sans, fontSize: 14, fontWeight: 600, cursor: "pointer", minHeight: 50,
+            display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+            width: "100%", padding: "13px 0", boxSizing: "border-box",
+            background: "#25D366", color: "#fff", borderRadius: 12, textDecoration: "none",
+            fontFamily: BL.sans, fontSize: 14, fontWeight: 700, minHeight: 50,
+            boxShadow: "0 4px 14px rgba(37,211,102,0.35)",
           }}
         >
-          {copied ? "Copied to clipboard ✓" : "Share with squad →"}
-        </button>
-        <div style={{ fontFamily: BL.sans, fontSize: 12, color: BL.faint, textAlign: "center", marginTop: 8 }}>
-          Opens WhatsApp, Messages, or any share sheet
+          Share on WhatsApp →
+        </a>
+        <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+          <button
+            onClick={copy}
+            style={{ flex: 1, padding: "11px 0", background: BL.card, border: `1px solid ${BL.hair}`, borderRadius: 10, fontFamily: BL.sans, fontSize: 13, fontWeight: 600, color: copied ? BL.need.ok.fg : BL.ink, cursor: "pointer", minHeight: 44 }}
+          >
+            {copied ? "Copied ✓" : "Copy message"}
+          </button>
+          <button
+            onClick={shareNative}
+            style={{ flex: 1, padding: "11px 0", background: BL.card, border: `1px solid ${BL.hair}`, borderRadius: 10, fontFamily: BL.sans, fontSize: 13, fontWeight: 600, color: BL.ink, cursor: "pointer", minHeight: 44 }}
+          >
+            More options…
+          </button>
         </div>
       </div>
     </div>

@@ -24,6 +24,15 @@ alerts_table = dynamodb.Table(os.environ["ALERTS_TABLE"])
 notifs_table = dynamodb.Table(os.environ.get("NOTIFICATIONS_TABLE", f"bloodline-notifications-{os.environ.get('STAGE', 'dev')}"))
 
 ONEMAP_SEARCH = "https://www.onemap.gov.sg/api/common/elastic/search"
+NOMINATIM_SEARCH = "https://nominatim.openstreetmap.org/search"
+
+# Singapore bounding box — any stored/geocoded coordinate outside this is corrupt
+# (bad geocode match or swapped lat/lng) and must not drive distance labels.
+SG_LAT = (1.13, 1.50)
+SG_LNG = (103.55, 104.12)
+# Bump when the geocode pipeline improves: rows marked failed by an older
+# pipeline (flag != current version) get retried once with the new one.
+GEOCODE_VERSION = 2
 
 # Fixed sites whose names OneMap can't resolve (they're app labels, not places).
 # Coordinates are applied directly so these always have a location for proximity.
@@ -36,6 +45,10 @@ KNOWN_COORDS = {
     "HSA Bloodbank":          (1.2812, 103.8389),
     "Singapore Red Cross":    (1.2966, 103.8485),
 }
+
+
+def _in_singapore(lat: float, lng: float) -> bool:
+    return SG_LAT[0] <= lat <= SG_LAT[1] and SG_LNG[0] <= lng <= SG_LNG[1]
 
 
 def _geocode_onemap(location: str):
@@ -54,6 +67,76 @@ def _geocode_onemap(location: str):
     results = data.get("results") or []
     if results:
         return float(results[0]["LATITUDE"]), float(results[0]["LONGITUDE"])
+    return None, None
+
+
+def _geocode_nominatim(location: str):
+    """Fallback geocoder: OSM Nominatim, constrained to Singapore.
+
+    OneMap only indexes addresses/buildings, so names like parks and nature
+    trails ("MacRitchie Nature Trail") miss there but resolve here.
+    """
+    qs = urllib.parse.urlencode({
+        "q": location, "format": "json", "limit": 1, "countrycodes": "sg",
+    })
+    req = urllib.request.Request(
+        f"{NOMINATIM_SEARCH}?{qs}",
+        headers={"User-Agent": "bloodline-hackathon (bloodlineapps@gmail.com)"},
+    )
+    with urllib.request.urlopen(req, timeout=4) as resp:  # noqa: S310 (trusted host)
+        data = json.loads(resp.read().decode())
+    if data:
+        return float(data[0]["lat"]), float(data[0]["lon"])
+    return None, None
+
+
+def _query_variants(location: str) -> list:
+    """Progressively simpler search strings for a stubborn location name:
+    the name as-is, without drive-y suffixes, and the part before any comma.
+    """
+    out, seen = [], set()
+
+    def add(q: str):
+        q = q.strip(" ,-·")
+        if q and q.lower() not in seen:
+            seen.add(q.lower())
+            out.append(q)
+
+    add(location)
+    low = location.lower()
+    for noise in ("blood donation drive", "blood drive", "donation drive"):
+        idx = low.find(noise)
+        if idx != -1:
+            add(location[:idx] + location[idx + len(noise):])
+    add(location.split(",")[0])
+    return out[:3]
+
+
+def _geocode_location(location: str):
+    """Best-effort SG coords for a free-text location: OneMap across query
+    variants, then Nominatim. Results outside Singapore are wrong matches and
+    rejected. Returns (lat, lng) or (None, None); raises if every miss was
+    transient so the caller retries instead of marking a permanent failure.
+    """
+    transient = False
+    for q in _query_variants(location):
+        try:
+            lat, lng = _geocode_onemap(q)
+        except Exception:
+            transient = True
+            continue
+        if lat is not None and _in_singapore(lat, lng):
+            return lat, lng
+    for q in _query_variants(location):
+        try:
+            lat, lng = _geocode_nominatim(q)
+        except Exception:
+            transient = True
+            continue
+        if lat is not None and _in_singapore(lat, lng):
+            return lat, lng
+    if transient:
+        raise RuntimeError(f"geocode transient failure: {location}")
     return None, None
 
 
@@ -87,7 +170,10 @@ def _ensure_coords(items: list, table, id_field: str, limit: int = 8) -> None:
             )
             continue
 
-        if item.get("geocodeFailed"):
+        # Only skip failures from the *current* pipeline version — older flags
+        # (e.g. True, from before the Nominatim fallback) get one retry with
+        # the improved resolver.
+        if item.get("geocodeFailed") == GEOCODE_VERSION:
             continue
 
         if loc not in resolved and loc not in no_match and loc not in attempted:
@@ -96,9 +182,9 @@ def _ensure_coords(items: list, table, id_field: str, limit: int = 8) -> None:
             geocoded += 1
             attempted.add(loc)
             try:
-                lat, lng = _geocode_onemap(loc)
+                lat, lng = _geocode_location(loc)
             except Exception:
-                logger.warning("OneMap geocode transient error — will retry", location=loc)
+                logger.warning("Geocode transient error — will retry", location=loc)
                 continue  # transient (429/timeout) — retry on a later request
             if lat is not None and lng is not None:
                 resolved[loc] = (lat, lng)
@@ -117,7 +203,7 @@ def _ensure_coords(items: list, table, id_field: str, limit: int = 8) -> None:
             table.update_item(
                 Key={id_field: item[id_field]},
                 UpdateExpression="SET geocodeFailed = :t",
-                ExpressionAttributeValues={":t": True},
+                ExpressionAttributeValues={":t": GEOCODE_VERSION},
             )
 
 

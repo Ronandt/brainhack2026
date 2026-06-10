@@ -278,7 +278,10 @@ export default function HomePanel({ onNavigate }) {
     // can target where they actually are; falls back to home postal code server-side.
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
-        pos => updateDonor({ liveLat: pos.coords.latitude, liveLng: pos.coords.longitude }).catch(() => {}),
+        pos => {
+          setUserCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+          updateDonor({ liveLat: pos.coords.latitude, liveLng: pos.coords.longitude }).catch(() => {});
+        },
         () => {},  // denied / unavailable → home location is used instead
         { enableHighAccuracy: false, timeout: 8000, maximumAge: 300000 }
       );
