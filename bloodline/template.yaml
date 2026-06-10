@@ -36,7 +36,7 @@ Parameters:
   AppUrl:
     Type: String
     Default: ""
-    Description: Public Bloodline donor-app URL used as the call-to-action link in surge alert emails
+    Description: Optional override for the surge-email call-to-action link (e.g. a custom domain). Leave blank to use the CloudFront PWA URL.
   EnableSms:
     Type: String
     Default: "false"
@@ -51,6 +51,10 @@ Parameters:
     Default: "SGVWAY+7SwSN1dTLV9kN4Q=="
     NoEcho: true
     Description: LTA DataMall AccountKey used to fetch live traffic incidents for the HSA ops feed
+
+Conditions:
+  # When AppUrl is left blank, surge emails link to the CloudFront-hosted PWA.
+  HasCustomAppUrl: !Not [!Equals [!Ref AppUrl, ""]]
 
 # ---------------------------------------------------------------------------
 # API GATEWAY
@@ -482,7 +486,8 @@ Resources:
       Environment:
         Variables:
           SENDER_EMAIL: !Ref SenderEmail
-          APP_URL: !Ref AppUrl
+          # Defaults to the CloudFront PWA URL; AppUrl param overrides for a custom domain
+          APP_URL: !If [HasCustomAppUrl, !Ref AppUrl, !Sub "https://${FrontendDistribution.DomainName}"]
           SMS_ENABLED: !Ref EnableSms
           SMS_SENDER_ID: !Ref SmsSenderId
       Policies:

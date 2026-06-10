@@ -7,6 +7,7 @@ import {
 } from "../api";
 import { getToken } from "../auth";
 import { BL, riskToNeed } from "../tokens";
+import { resolveCoords, haversineKm, formatDistance } from "../geo";
 
 function AppHeader({ sub, title, right }) {
   return (
@@ -82,6 +83,7 @@ export default function HomePanel({ onNavigate }) {
   const [status,            setStatus]            = useState(null);
   const [drives,            setDrives]            = useState([]); // used for surge action card
   const [slots,             setSlots]             = useState([]); // slot-based booking
+  const [userCoords,        setUserCoords]        = useState(null); // for nearest-bloodbank distance
   const [surgeAlerts,       setSurgeAlerts]       = useState([]);
   const [activeBooking,     setActiveBooking]     = useState(null);
   const [loading,           setLoading]           = useState(true);
@@ -213,6 +215,19 @@ export default function HomePanel({ onNavigate }) {
   const userType  = donor?.bloodType;
   const typeStockItem = bloodStock.find(s => s.bloodType === userType);
   const typeNeed      = typeStockItem ? statusToNeed(typeStockItem.status) : "ok";
+
+  // Sort slots by distance from the donor (nearest first) when we know their
+  // location; otherwise keep server order. nearestSlot.{_distanceKm} drives the
+  // "WHEN CAN I GO?" card.
+  const slotsByDistance = userCoords
+    ? slots
+        .map(s => {
+          const c = resolveCoords(s);
+          return { ...s, _distanceKm: c ? haversineKm(userCoords.lat, userCoords.lng, c.lat, c.lng) : null };
+        })
+        .sort((a, b) => (a._distanceKm ?? Infinity) - (b._distanceKm ?? Infinity))
+    : slots.map(s => ({ ...s, _distanceKm: null }));
+  const nearestSlot = slotsByDistance[0] ?? null;
 
   // 14-day forecast scoped to the donor's own blood type, so they can plan ahead
   useEffect(() => {
@@ -1150,7 +1165,6 @@ export default function HomePanel({ onNavigate }) {
     : "Not urgently.";
 
   const needDot     = (typeNeed === "urgent" || typeNeed === "critical") ? BL.red : BL.ink;
-  const nearestSlot = slots[0] ?? null;
 
   // Plain-language read of the 14-day outlook for the donor's own type
   const forecastSummary = (() => {
@@ -1288,6 +1302,9 @@ export default function HomePanel({ onNavigate }) {
             </div>
           ) : nearestSlot ? (
             <div style={{ marginTop: 8, background: BL.card, border: `1px solid ${BL.hair}`, borderRadius: 6, padding: 14 }}>
+              {nearestSlot._distanceKm != null && (
+                <div style={{ marginBottom: 4 }}><Tag color={BL.red}>Nearest bloodbank · {formatDistance(nearestSlot._distanceKm)} away</Tag></div>
+              )}
               <div style={{ fontFamily: BL.sans, fontSize: 14, color: BL.ink, fontWeight: 600 }}>
                 {nearestSlot.name || nearestSlot.location}
               </div>
