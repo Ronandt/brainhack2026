@@ -141,6 +141,25 @@ def _preview_reach(event: dict) -> dict:
     return _response(200, {"notified": len(donors), "geoTier": geo_tier, "banks": len(banks)})
 
 
+def _supersede_overlapping(new_types: set, new_alert_id: str, now: str) -> list:
+    """End any active surge whose blood types overlap new_types (newest wins)."""
+    result = alerts_table.scan(FilterExpression=Attr("status").eq("active"))
+    ended = []
+    for old in result.get("Items", []):
+        old_types = set(old.get("bloodTypes") or ([old["bloodType"]] if old.get("bloodType") else []))
+        if new_types & old_types:
+            alerts_table.update_item(
+                Key={"alertId": old["alertId"]},
+                UpdateExpression="SET #s = :e, endedAt = :t, supersededBy = :n",
+                ExpressionAttributeNames={"#s": "status"},
+                ExpressionAttributeValues={":e": "ended", ":t": now, ":n": new_alert_id},
+            )
+            ended.append(old["alertId"])
+    if ended:
+        logger.info("Superseded overlapping surges", new_alert_id=new_alert_id, ended=ended)
+    return ended
+
+
 def _activate_surge(event: dict) -> dict:
     # Break-glass: require HSA admin group. Single-officer activation — no dual sign-off.
     if not _is_hsa_admin(event):
@@ -168,6 +187,10 @@ def _activate_surge(event: dict) -> dict:
     activated_by = event["requestContext"]["authorizer"]["claims"]["sub"]
     now = datetime.utcnow().isoformat()
     blood_type_label = ", ".join(blood_types)
+
+    # One active surge per blood type: end any active surge that overlaps the new
+    # blood types so a donor only ever sees a single relevant call (newest wins).
+    superseded = _supersede_overlapping(set(blood_types), alert_id, now)
 
     alert = {
         "alertId": alert_id,
@@ -202,8 +225,8 @@ def _activate_surge(event: dict) -> dict:
         },
     )
 
-    logger.info("Surge alert activated", alert_id=alert_id, blood_types=blood_types, geo_tier=geo_tier)
-    return _response(201, {"alertId": alert_id, "status": "active", "bloodTypes": blood_types, "message": "Surge alert activated and notifications dispatched"})
+    logger.info("Surge alert activated", alert_id=alert_id, blood_types=blood_types, geo_tier=geo_tier, superseded=len(superseded))
+    return _response(201, {"alertId": alert_id, "status": "active", "bloodTypes": blood_types, "superseded": len(superseded), "message": "Surge alert activated and notifications dispatched"})
 
 
 def _end_surge(event: dict, alert_id: str) -> dict:

@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from "react";
-import { getDrives, getSlots, createBooking, bookSlot, cancelSlotBooking, getMyBookings, createDrive } from "../api";
+import { getDrives, getSlots, createBooking, bookSlot, cancelSlotBooking, getMyBookings, createDrive, getDonor } from "../api";
 import { BL } from "../tokens";
 import { BLOODBANK_COORDS, haversineKm, resolveCoords, formatDistance } from "../geo";
 import { DriveCardsSkeleton } from "./Skeleton";
@@ -8,8 +8,8 @@ import { DriveCardsSkeleton } from "./Skeleton";
 
 const BLOOD_TYPES   = ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"];
 const INVITE_STATUSES  = ["Critical", "High", "Low"];
-const ORGANIZER_NAME   = "Bryan";
-const TARGET_RSVPS     = 18;
+const TARGET_RSVPS     = 18;   // default invite target
+const MAX_RSVPS        = 100;  // upper limit a donor can set
 const DEFAULT_MAP_CENTER = { lat: 1.3521, lng: 103.8198 };
 const SESSION_TABS     = [
   { id: "all", label: "All" },
@@ -535,9 +535,14 @@ function HostDriveBubble() {
   const [locationStatus, setLocationStatus] = useState("");
   const [locationLoading, setLocationLoading] = useState(false);
   const [submitState,  setSubmitState]  = useState({});
+  const [targetRsvps,  setTargetRsvps]  = useState(TARGET_RSVPS);
+  const [organizerName, setOrganizerName] = useState("");
   const inviteStatus    = useMemo(() => pickRandom(INVITE_STATUSES), []);
-  const totalMembers    = useMemo(() => 96 + Math.floor(Math.random() * 65), []);
   const activeLocation  = selectedLocation ?? mapCenter;
+
+  useEffect(() => {
+    getDonor().then(d => setOrganizerName(d.name ?? "")).catch(() => {});
+  }, []);
   const selectedDateLabel = dateLabel(selectedDate);
   const selectedDateTimeLabel = selectedDate && selectedTime
     ? `${selectedDateLabel} · ${timeLabel(selectedTime)}`
@@ -657,7 +662,9 @@ function HostDriveBubble() {
         location: group,
         date: selectedDate,
         startTime: selectedTime,
-        capacity: TARGET_RSVPS,
+        capacity: targetRsvps,
+        lat: selectedLocation?.lat,
+        lng: selectedLocation?.lng,
         acceptedBloodTypes: selectedBloodTypes.length > 0 ? selectedBloodTypes : BLOOD_TYPES,
         notes: `Donor-hosted drive request. Inviting ${selectedBloodTypeLabel} donors.`,
       });
@@ -835,15 +842,25 @@ function HostDriveBubble() {
               <div>
                 <div style={{ background: BL.fill, border: `1px solid ${BL.hair}`, borderRadius: 8, padding: 14, fontFamily: BL.sans, fontSize: 13, color: BL.ink, lineHeight: 1.55, marginBottom: 14 }}>
                   <div style={{ fontWeight: 700, marginBottom: 6 }}>Preview</div>
-                  {ORGANIZER_NAME} is organising a blood drive at {group}, {selectedDateTimeLabel}. Inviting <b>{selectedBloodTypeLabel}</b> donors — {selectedBloodTypeLabel} is currently at <b>{inviteStatus}</b> nationally. Tap to RSVP — about 15 min.
+                  {organizerName || "You"} {organizerName ? "is" : "are"} organising a blood drive at {group}, {selectedDateTimeLabel}. Inviting <b>{selectedBloodTypeLabel}</b> donors — {selectedBloodTypeLabel} is currently at <b>{inviteStatus}</b> nationally. Tap to RSVP — about 15 min.
                 </div>
                 <div style={{ background: BL.card, border: `1px solid ${BL.hair}`, borderRadius: 8, padding: 14, marginBottom: 14 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "baseline", marginBottom: 10 }}>
-                    <span style={{ fontFamily: BL.sans, fontSize: 13, color: BL.ink }}><b>14 {selectedBloodTypeLabel}</b> eligible · {totalMembers} total members</span>
-                    <span style={{ fontFamily: BL.mono, fontSize: 10, fontWeight: 700, color: BL.red, letterSpacing: 0.4, textTransform: "uppercase", flexShrink: 0 }}>need {TARGET_RSVPS} RSVPs</span>
-                  </div>
-                  <div style={{ height: 6, background: BL.fill, borderRadius: 3, overflow: "hidden" }}>
-                    <div style={{ height: "100%", width: 0, background: BL.red, borderRadius: 3 }} />
+                  <label style={{ fontFamily: BL.sans, fontSize: 13, color: BL.ink, fontWeight: 600, display: "block", marginBottom: 8 }}>
+                    How many people do you want to invite?
+                  </label>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <button type="button" aria-label="Fewer"
+                      onClick={() => setTargetRsvps(n => Math.max(1, n - 1))}
+                      style={{ width: 34, height: 34, borderRadius: 6, border: `1px solid ${BL.hair}`, background: "#fff", color: BL.ink, fontSize: 18, cursor: "pointer" }}>−</button>
+                    <input
+                      type="number" min={1} max={MAX_RSVPS} value={targetRsvps}
+                      onChange={e => setTargetRsvps(Math.min(MAX_RSVPS, Math.max(1, parseInt(e.target.value, 10) || 1)))}
+                      style={{ width: 70, height: 34, textAlign: "center", borderRadius: 6, border: `1px solid ${BL.hair}`, fontFamily: BL.mono, fontSize: 15, fontWeight: 700, color: BL.ink, background: "#fff" }}
+                    />
+                    <button type="button" aria-label="More"
+                      onClick={() => setTargetRsvps(n => Math.min(MAX_RSVPS, n + 1))}
+                      style={{ width: 34, height: 34, borderRadius: 6, border: `1px solid ${BL.hair}`, background: "#fff", color: BL.ink, fontSize: 18, cursor: "pointer" }}>+</button>
+                    <span style={{ fontFamily: BL.mono, fontSize: 10, color: BL.muted, marginLeft: 4 }}>people · max {MAX_RSVPS}</span>
                   </div>
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>

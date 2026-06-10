@@ -154,12 +154,11 @@ Resources:
       UserPoolId: !Ref DonorUserPool
       Description: HSA staff with admin-level access
 
-  RedCrossSGGroup:
-    Type: AWS::Cognito::UserPoolGroup
-    Properties:
-      GroupName: RedCrossSG
-      UserPoolId: !Ref DonorUserPool
-      Description: Singapore Red Cross staff with final drive approval access
+  # NOTE: the "RedCrossSG" Cognito group already exists in the user pool (created
+  # out-of-band, like BloodBank/HospitalStaff) and has members. CloudFormation
+  # can't create a duplicate — it fails early validation — so we do NOT define it
+  # here. The group is managed manually in Cognito; the app only checks membership.
+
 
 # ---------------------------------------------------------------------------
 # FRONTEND — S3 + CLOUDFRONT
