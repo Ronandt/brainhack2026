@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { getPendingDrives, approveDrive, rejectDrive } from "../../api";
 import { BL } from "../../tokens";
+import { GenericPanelSkeleton } from "../Skeleton";
 
 function Tag({ children, color, bg }) {
   return (
@@ -55,6 +56,8 @@ export default function DrivesPanel() {
     }
   }
 
+  if (loading) return <GenericPanelSkeleton rows={4} />;
+
   return (
     <div>
       {/* Page header */}
@@ -64,7 +67,7 @@ export default function DrivesPanel() {
             Community drive queue
           </div>
           <div style={{ fontFamily: BL.sans, fontSize: 13, color: BL.muted, marginTop: 4 }}>
-            {loading ? "Loading…" : `${drives.length} pending request${drives.length !== 1 ? "s" : ""} · approve, decline, or request edits.`}
+            {`${drives.length} pending request${drives.length !== 1 ? "s" : ""} · approve, decline, or request edits.`}
           </div>
         </div>
         <div style={{ display: "flex", gap: 6 }}>
@@ -73,7 +76,7 @@ export default function DrivesPanel() {
         </div>
       </div>
 
-      {!loading && drives.length === 0 && (
+      {drives.length === 0 && (
         <div style={{ fontFamily: BL.sans, color: BL.faint, fontSize: 13 }}>No drives pending approval.</div>
       )}
 

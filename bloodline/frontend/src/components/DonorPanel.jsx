@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { getDonor, updateDonor, getRetainStats } from "../api";
 import { BL } from "../tokens";
+import { DonorProfileSkeleton } from "./Skeleton";
 
 const BLOOD_TYPES = ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"];
 
@@ -102,12 +103,7 @@ export default function DonorPanel({ onLogout }) {
     }
   }
 
-  if (loading) return (
-    <div style={{ padding: "8px 0" }}>
-      <div style={{ fontFamily: BL.sans, fontSize: 22, fontWeight: 600, color: BL.ink, letterSpacing: -0.4, marginBottom: 16 }}>You</div>
-      <div style={{ fontFamily: BL.sans, color: BL.muted, fontSize: 13 }}>Loading profile…</div>
-    </div>
-  );
+  if (loading) return <DonorProfileSkeleton />;
 
   if (error) return (
     <div style={{ fontFamily: BL.sans, color: BL.need.critical.fg, fontSize: 13, padding: "8px 0" }}>{error}</div>

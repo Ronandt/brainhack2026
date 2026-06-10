@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { getHospitalSlots } from "../../api";
 import { BL } from "../../tokens";
+import { MySlotsSkeletonPanel } from "../Skeleton";
 
 const s = {
   pageTitle: { fontFamily: BL.sans, fontSize: 22, fontWeight: 600, color: BL.ink, letterSpacing: -0.3, marginBottom: 4 },
@@ -69,7 +70,7 @@ export default function MySlotsPanel() {
         </div>
       )}
 
-      {loading && <div style={s.empty}>Loading…</div>}
+      {loading && <MySlotsSkeletonPanel />}
       {error && <div style={{ fontFamily: BL.sans, fontSize: 13, color: BL.need.critical.fg, marginBottom: 16 }}>{error}</div>}
       {!loading && !error && slots.length === 0 && (
         <div style={s.empty}>No slots yet — create your first slot using the form.</div>

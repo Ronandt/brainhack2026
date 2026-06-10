@@ -8,6 +8,7 @@ import {
 import { getToken } from "../auth";
 import { BL, riskToNeed } from "../tokens";
 import { resolveCoords, haversineKm, formatDistance } from "../geo";
+import { HomePanelSkeleton } from "./Skeleton";
 import { enableSurgePush } from "../push";
 
 function AppHeader({ sub, title, right }) {
@@ -43,8 +44,10 @@ function Tag({ children, color, bg }) {
 function Card({ children, style }) {
   return (
     <div style={{
-      background: BL.card, border: `1px solid ${BL.hair}`, borderRadius: 6,
-      padding: 16, marginBottom: 10, ...style,
+      background: BL.card, borderRadius: 14,
+      padding: 16, marginBottom: 10,
+      boxShadow: "0 1px 8px rgba(0,0,0,0.05), 0 0 0 1px rgba(0,0,0,0.04)",
+      ...style,
     }}>
       {children}
     </div>
@@ -308,12 +311,7 @@ export default function HomePanel({ onNavigate }) {
     }
   }
 
-  if (loading) return (
-    <div>
-      <AppHeader sub="bloodline" title="Home" />
-      <div style={{ fontFamily: BL.sans, color: BL.muted, fontSize: 13, padding: "8px 0" }}>Loading…</div>
-    </div>
-  );
+  if (loading) return <HomePanelSkeleton />;
 
   // ── Slot picker ──────────────────────────────────────────────────
   if (screen === "booking") {
@@ -386,7 +384,7 @@ export default function HomePanel({ onNavigate }) {
             width: "100%", padding: "13px 0", marginTop: 4,
             background: selectedSlot ? BL.ink : BL.hair,
             color: selectedSlot ? "#fff" : BL.muted,
-            border: "none", borderRadius: 8, fontFamily: BL.sans, fontSize: 14, fontWeight: 600,
+            border: "none", borderRadius: 12, fontFamily: BL.sans, fontSize: 14, fontWeight: 600,
             cursor: selectedSlot ? "pointer" : "default",
           }}
         >
@@ -590,7 +588,7 @@ export default function HomePanel({ onNavigate }) {
             width: "100%", padding: "15px 0",
             background: !allChecked ? BL.hair : BL.ink,
             color: !allChecked ? BL.muted : "#fff",
-            border: "none", borderRadius: 8, fontFamily: BL.sans, fontSize: 14, fontWeight: 600,
+            border: "none", borderRadius: 12, fontFamily: BL.sans, fontSize: 14, fontWeight: 600,
             cursor: confirming || !allChecked ? "default" : "pointer",
             opacity: confirming ? 0.7 : 1, minHeight: 50,
           }}
@@ -628,7 +626,7 @@ export default function HomePanel({ onNavigate }) {
           onClick={() => { setScreen(null); setSelectedSlot(null); }}
           style={{
             width: "100%", padding: "13px 0", background: BL.ink, color: "#fff",
-            border: "none", borderRadius: 8, fontFamily: BL.sans, fontSize: 14, fontWeight: 600,
+            border: "none", borderRadius: 12, fontFamily: BL.sans, fontSize: 14, fontWeight: 600,
             cursor: "pointer", marginTop: 8,
           }}
         >
@@ -689,7 +687,7 @@ export default function HomePanel({ onNavigate }) {
           }}
           style={{
             width: "100%", padding: "15px 0", marginTop: 8,
-            background: BL.ink, color: "#fff", border: "none", borderRadius: 8,
+            background: BL.ink, color: "#fff", border: "none", borderRadius: 12,
             fontFamily: BL.sans, fontSize: 15, fontWeight: 600, cursor: "pointer", minHeight: 52,
           }}
         >
@@ -847,7 +845,7 @@ export default function HomePanel({ onNavigate }) {
           style={{
             width: "100%", padding: "14px 0", marginTop: 4,
             background: BL.ink, color: "#fff",
-            border: "none", borderRadius: 8, fontFamily: BL.sans,
+            border: "none", borderRadius: 12, fontFamily: BL.sans,
             fontSize: 14, fontWeight: 600, cursor: "pointer", minHeight: 50,
           }}
         >
@@ -928,10 +926,10 @@ export default function HomePanel({ onNavigate }) {
             {" "}It takes about 15 minutes — tap to RSVP.
           </div>
         </Card>
-        <button style={{ width: "100%", padding: "14px 0", background: BL.surge, color: "#fff", border: "none", borderRadius: 8, fontFamily: BL.sans, fontSize: 14, fontWeight: 600, cursor: "pointer", minHeight: 50, marginBottom: 8 }}>
+        <button style={{ width: "100%", padding: "14px 0", background: BL.surge, color: "#fff", border: "none", borderRadius: 12, fontFamily: BL.sans, fontSize: 14, fontWeight: 600, cursor: "pointer", minHeight: 50, marginBottom: 8 }}>
           Send invite →
         </button>
-        <button onClick={() => setScreen(null)} style={{ width: "100%", padding: "10px 0", background: "none", border: `1px solid ${BL.hair}`, borderRadius: 8, fontFamily: BL.sans, fontSize: 13, color: BL.muted, cursor: "pointer" }}>
+        <button onClick={() => setScreen(null)} style={{ width: "100%", padding: "10px 0", background: "none", border: "none", borderRadius: 12, fontFamily: BL.sans, background: BL.fill, fontSize: 13, color: BL.muted, cursor: "pointer" }}>
           Cancel
         </button>
       </div>
@@ -1129,7 +1127,7 @@ export default function HomePanel({ onNavigate }) {
                   onClick={() => onNavigate?.("drives")}
                   style={{
                     width: "100%", padding: "14px 0",
-                    background: BL.surge, color: "#fff", border: "none", borderRadius: 8,
+                    background: BL.surge, color: "#fff", border: "none", borderRadius: 12,
                     fontFamily: BL.sans, fontSize: 14, fontWeight: 700, cursor: "pointer", minHeight: 50,
                   }}
                 >
@@ -1227,17 +1225,16 @@ export default function HomePanel({ onNavigate }) {
         }
       >
         {bloodStock.length > 0 && (
-          <div style={{ marginTop: 10, background: BL.card, border: `1px solid ${BL.hair}`, borderRadius: 6, padding: 10 }}>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(8, 1fr)", gap: 3, marginBottom: 8 }}>
+          <div style={{ marginTop: 10, background: BL.card, borderRadius: 12, padding: 12, boxShadow: "0 1px 8px rgba(0,0,0,0.05), 0 0 0 1px rgba(0,0,0,0.04)" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(8, 1fr)", gap: 4, marginBottom: 10 }}>
               {bloodStock.map(item => {
                 const need     = statusToNeed(item.status);
                 const selected = item.bloodType === userType;
                 return (
                   <div key={item.bloodType} style={{
                     background: BL.need[need].bg,
-                    border: `1.5px solid ${selected ? BL.need[need].fg : `${BL.need[need].fg}44`}`,
-                    borderRadius: 4, padding: "6px 2px", textAlign: "center",
-                    outline: selected ? `2px solid ${BL.need[need].fg}` : "none", outlineOffset: 1,
+                    borderRadius: 8, padding: "7px 2px", textAlign: "center",
+                    boxShadow: selected ? `0 0 0 2px ${BL.need[need].fg}` : `0 0 0 1px ${BL.need[need].fg}30`,
                   }}>
                     <div style={{ fontFamily: BL.mono, fontSize: 9, fontWeight: 600, color: BL.ink }}>{item.bloodType}</div>
                     <div style={{ fontFamily: BL.mono, fontSize: 7, color: BL.need[need].fg, marginTop: 1, textTransform: "uppercase", letterSpacing: 0.2 }}>
@@ -1257,7 +1254,7 @@ export default function HomePanel({ onNavigate }) {
 
         {/* 14-day outlook for the donor's own type — plan ahead */}
         {userType && typeForecast?.length > 0 && (
-          <div style={{ marginTop: 10, background: BL.card, border: `1px solid ${BL.hair}`, borderRadius: 6, padding: 10 }}>
+          <div style={{ marginTop: 10, background: BL.card, borderRadius: 12, padding: 12, boxShadow: "0 1px 8px rgba(0,0,0,0.05), 0 0 0 1px rgba(0,0,0,0.04)" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 8 }}>
               <span style={{ fontFamily: BL.mono, fontSize: 9, color: BL.muted, letterSpacing: 0.6, textTransform: "uppercase" }}>
                 14-day outlook · {userType}
@@ -1275,7 +1272,7 @@ export default function HomePanel({ onNavigate }) {
                     title={`${day.date} · ${day.riskLevel} · ${Math.round(day.percentage)}%`}
                     style={{
                       flex: 1, height: `${Math.max(8, Math.min(100, day.percentage))}%`,
-                      background: BL.need[need].fg, borderRadius: 1, opacity: 0.85,
+                      background: BL.need[need].fg, borderRadius: 3, opacity: 0.85,
                     }}
                   />
                 );
@@ -1301,8 +1298,8 @@ export default function HomePanel({ onNavigate }) {
             /* Not yet eligible — rally friends instead */
             <div style={{ marginTop: 8 }}>
               <div style={{
-                background: BL.fill, border: `1px solid ${BL.hair}`,
-                borderRadius: 6, padding: 14, marginBottom: 10,
+                background: BL.fill, borderRadius: 12, padding: 14, marginBottom: 10,
+                boxShadow: "0 1px 6px rgba(0,0,0,0.04)",
               }}>
                 <div style={{ fontFamily: BL.sans, fontSize: 14, color: BL.ink, fontWeight: 600, marginBottom: 4 }}>
                   You can donate again in {donor.daysUntilEligible} day{donor.daysUntilEligible !== 1 ? "s" : ""}
@@ -1322,7 +1319,7 @@ export default function HomePanel({ onNavigate }) {
                 }}
                 style={{
                   width: "100%", padding: "13px 0",
-                  background: BL.ink, color: "#fff", border: "none", borderRadius: 8,
+                  background: BL.ink, color: "#fff", border: "none", borderRadius: 12,
                   fontFamily: BL.sans, fontSize: 14, fontWeight: 600, cursor: "pointer", minHeight: 48,
                   display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
                 }}
@@ -1331,7 +1328,7 @@ export default function HomePanel({ onNavigate }) {
               </button>
             </div>
           ) : nearestSlot ? (
-            <div style={{ marginTop: 8, background: BL.card, border: `1px solid ${BL.hair}`, borderRadius: 6, padding: 14 }}>
+            <div style={{ marginTop: 8, background: BL.card, borderRadius: 14, padding: 16, boxShadow: "0 1px 8px rgba(0,0,0,0.05), 0 0 0 1px rgba(0,0,0,0.04)" }}>
               {nearestSlot._distanceKm != null && (
                 <div style={{ marginBottom: 4 }}><Tag color={BL.red}>Nearest bloodbank · {formatDistance(nearestSlot._distanceKm)} away</Tag></div>
               )}
@@ -1351,7 +1348,7 @@ export default function HomePanel({ onNavigate }) {
                 onClick={() => onNavigate?.("drives")}
                 style={{
                   width: "100%", marginTop: 12, padding: "13px 0",
-                  background: BL.ink, color: "#fff", border: "none", borderRadius: 8,
+                  background: BL.ink, color: "#fff", border: "none", borderRadius: 12,
                   fontFamily: BL.sans, fontSize: 14, fontWeight: 600, cursor: "pointer", minHeight: 48,
                 }}
               >
