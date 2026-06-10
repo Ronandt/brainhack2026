@@ -122,16 +122,14 @@ def _preview_reach(event: dict) -> dict:
     if geo_tier not in GEO_TIERS:
         return _response(400, {"error": f"geoTier must be one of {GEO_TIERS}"})
 
-    if geo_tier == "island-wide":
-        donors = _scan_all()
-    else:
-        if not blood_types:
-            return _response(200, {"notified": 0, "geoTier": geo_tier})
-        type_filter = None
-        for bt in blood_types:
-            cond = Attr("bloodType").eq(bt)
-            type_filter = cond if type_filter is None else (type_filter | cond)
-        donors = _scan_all(type_filter)
+    # A surge always targets its blood type(s); the tier only adds a radius below.
+    if not blood_types:
+        return _response(200, {"notified": 0, "geoTier": geo_tier})
+    type_filter = None
+    for bt in blood_types:
+        cond = Attr("bloodType").eq(bt)
+        type_filter = cond if type_filter is None else (type_filter | cond)
+    donors = _scan_all(type_filter)
 
     radius_km = TIER_RADIUS_KM.get(geo_tier)
     banks = []

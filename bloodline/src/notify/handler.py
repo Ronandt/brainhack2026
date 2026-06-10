@@ -137,19 +137,15 @@ def _dispatch_notifications(message: dict) -> None:
 
     logger.info("Dispatching notifications", alert_id=alert_id, blood_types=blood_types, geo_tier=geo_tier)
 
-    # Match the donor-app banner: an island-wide surge reaches every donor,
-    # narrower tiers are scoped to the requested blood types. We don't exclude
-    # donors in their rest window (the app surfaces the surge to them too so they
-    # can rally others), and `eligible` is computed at read-time, never stored,
-    # so it can't be used as a scan filter.
-    if geo_tier == "island-wide":
-        donors = _scan_all()
-    else:
-        type_filter = None
-        for bt in blood_types:
-            cond = Attr("bloodType").eq(bt)
-            type_filter = cond if type_filter is None else (type_filter | cond)
-        donors = _scan_all(type_filter)
+    # A surge always targets its blood type(s) — a donor is only alerted if their
+    # type matches. The tier only controls geography: island-wide = anywhere,
+    # narrower tiers add a radius filter below. (`eligible` is computed at
+    # read-time, never stored, so it can't be used as a scan filter.)
+    type_filter = None
+    for bt in blood_types:
+        cond = Attr("bloodType").eq(bt)
+        type_filter = cond if type_filter is None else (type_filter | cond)
+    donors = _scan_all(type_filter)
 
     # Geo radius filter for narrow tiers: keep donors within N km of any blood bank
     # (freshest of live device location or geocoded home). island-wide skips this.

@@ -174,7 +174,7 @@ export default function HomePanel({ onNavigate }) {
         alerts
           .filter(a => {
             const types = a.bloodTypes ?? (a.bloodType ? [a.bloodType] : []);
-            return a.geoTier === "island-wide" || types.includes(donor?.bloodType);
+            return types.includes(donor?.bloodType);
           })
           .forEach(pushBrowserNotification);
       })
@@ -248,9 +248,10 @@ export default function HomePanel({ onNavigate }) {
 
   // Active surge: hidden if snoozed OR donor already has a confirmed booking
   const isSnoozed  = Date.now() < snoozedUntil;
+  // A surge only shows to a donor whose own blood type is being called for.
   const surgeMatchesUser = (a) => {
     const types = a.bloodTypes ?? (a.bloodType ? [a.bloodType] : []);
-    return a.geoTier === "island-wide" || types.includes(userType);
+    return types.includes(userType);
   };
   const activeSurge = (isSnoozed || activeBooking) ? null : (surgeAlerts.find(surgeMatchesUser) ?? null);
   // A surge the donor would see if they hadn't snoozed — drives the "Resume alerts" notice.
@@ -1143,8 +1144,8 @@ export default function HomePanel({ onNavigate }) {
             <Tag>WHY YOU GOT THIS</Tag>
             <div style={{ fontFamily: BL.sans, fontSize: 12, color: BL.muted, lineHeight: 1.55, marginTop: 6 }}>
               {userType
-                ? `You're ${userType} and within the ${activeSurge.geoTier} alert tier. You can opt out in Profile → Notifications.`
-                : `You're within the ${activeSurge.geoTier} alert tier. You can opt out in Profile → Notifications.`}
+                ? `Your blood type (${userType}) is being called for${activeSurge.geoTier === "island-wide" ? " island-wide" : ` within the ${activeSurge.geoTier} tier`}. You can opt out in Profile → Notifications.`
+                : `Your blood type is being called for. You can opt out in Profile → Notifications.`}
             </div>
           </div>
         </div>
