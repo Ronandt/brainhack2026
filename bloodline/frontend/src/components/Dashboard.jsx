@@ -1,4 +1,7 @@
 import { useState, useEffect } from "react";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faHouse, faCalendarDays, faHeart, faUser } from "@fortawesome/free-solid-svg-icons";
+import { faHouse as faHouseReg, faCalendarDays as faCalendarDaysReg, faHeart as faHeartReg, faUser as faUserReg } from "@fortawesome/free-regular-svg-icons";
 import { BL } from "../tokens";
 import HomePanel from "./HomePanel";
 import DonorDrivesPanel from "./DonorDrivesPanel";
@@ -58,10 +61,10 @@ const SG_BLOODBANKS = [
 ];
 
 const DONOR_TABS = [
-  { id: "home",    label: "Home" },
-  { id: "drives",  label: "Book" },
-  { id: "impact",  label: "Impact" },
-  { id: "profile", label: "You" },
+  { id: "home",    label: "Home",   solid: faHouse,        outline: faHouseReg },
+  { id: "drives",  label: "Book",   solid: faCalendarDays, outline: faCalendarDaysReg },
+  { id: "impact",  label: "Impact", solid: faHeart,        outline: faHeartReg },
+  { id: "profile", label: "You",    solid: faUser,         outline: faUserReg },
 ];
 
 const ADMIN_TABS = [
@@ -82,8 +85,8 @@ const SRC_TABS = [
   { id: "srccheckin", label: "Check-in" },
 ];
 
-function PanelContent({ tab, onLogout, hospitalName }) {
-  if (tab === "home")     return <HomePanel />;
+function PanelContent({ tab, onLogout, hospitalName, onNavigate }) {
+  if (tab === "home")     return <HomePanel onNavigate={onNavigate} />;
   if (tab === "drives")   return <DonorDrivesPanel />;
   if (tab === "impact")   return <ImpactPanel />;
   if (tab === "profile")  return <DonorPanel onLogout={onLogout} />;
@@ -328,22 +331,12 @@ function useIsMobile() {
   return mobile;
 }
 
-// Shared tab icon (square with rounded corners, matching prototype)
-// Per-tab line icons for the donor nav (home / book / impact / you)
-function NavIcon({ id, active, size = 20 }) {
-  const color = active ? BL.ink : BL.muted;
-  const p = {
-    home:    <><path d="M3 10.5 12 3l9 7.5" /><path d="M5 9.5V21h14V9.5" /><path d="M9.5 21v-6h5v6" /></>,
-    drives:  <><rect x="3.5" y="5" width="17" height="16" rx="2" /><path d="M3.5 9.5h17" /><path d="M8 3v4M16 3v4" /></>,
-    impact:  <path d="M12 20.5C7 17 3.5 13.8 3.5 9.8 3.5 7.1 5.6 5 8.2 5c1.7 0 3 .9 3.8 2.2C12.8 5.9 14.1 5 15.8 5c2.6 0 4.7 2.1 4.7 4.8 0 4-3.5 7.2-8.5 10.7Z" />,
-    profile: <><circle cx="12" cy="8" r="3.5" /><path d="M5 20c0-3.5 3.1-6 7-6s7 2.5 7 6" /></>,
-  };
+function TabIcon({ tab, active }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-      stroke={color} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"
-      style={{ display: "block" }}>
-      {p[id] ?? p.home}
-    </svg>
+    <FontAwesomeIcon
+      icon={active ? tab.solid : tab.outline}
+      style={{ fontSize: 20, color: active ? BL.ink : BL.faint, display: "block" }}
+    />
   );
 }
 
@@ -396,7 +389,10 @@ function DonorDesktopLayout({ tab, setTab, onLogout }) {
                 borderLeft: tab === t.id ? `2px solid ${BL.red}` : "2px solid transparent",
               }}
             >
-              <NavIcon id={t.id} active={tab === t.id} size={17} />
+              <FontAwesomeIcon
+                icon={tab === t.id ? t.solid : t.outline}
+                style={{ fontSize: 14, color: tab === t.id ? BL.ink : BL.faint, flexShrink: 0, width: 16 }}
+              />
               {t.label}
             </button>
           ))}
@@ -446,7 +442,7 @@ function DonorDesktopLayout({ tab, setTab, onLogout }) {
         {/* Panel */}
         <div style={{ flex: 1, overflowY: "auto", background: BL.paper }}>
           <div style={{ maxWidth: 800, padding: "16px 24px 24px" }}>
-            <PanelContent tab={tab} onLogout={onLogout} />
+            <PanelContent tab={tab} onLogout={onLogout} onNavigate={setTab} />
           </div>
         </div>
       </div>
@@ -460,16 +456,16 @@ function DonorMobileLayout({ tab, setTab, onLogout }) {
       {/* No top bar on mobile — matches prototype (AppHeader in each panel handles identity) */}
 
       {/* Safe area top + 16px base so content never hugs the browser chrome */}
-      <div style={{ padding: "max(16px, env(safe-area-inset-top)) 16px 80px" }}>
-        <PanelContent tab={tab} onLogout={onLogout} />
+      <div style={{ padding: "max(16px, env(safe-area-inset-top)) 16px 96px" }}>
+        <PanelContent tab={tab} onLogout={onLogout} onNavigate={setTab} />
       </div>
 
-      {/* Bottom tab bar — matches prototype TabBar exactly */}
+      {/* Bottom tab bar */}
       <div style={{
         position: "fixed", bottom: 0, left: 0, right: 0,
-        height: 56, background: BL.card, borderTop: `1px solid ${BL.hair}`,
+        height: 72, background: BL.card, borderTop: `1px solid ${BL.hair}`,
         display: "flex", alignItems: "center",
-        paddingBottom: 4, zIndex: 20,
+        paddingBottom: "max(8px, env(safe-area-inset-bottom))", zIndex: 20,
       }}>
         {DONOR_TABS.map(t => {
           const active = tab === t.id;
@@ -478,15 +474,15 @@ function DonorMobileLayout({ tab, setTab, onLogout }) {
               key={t.id}
               onClick={() => setTab(t.id)}
               style={{
-                flex: 1, textAlign: "center", background: "none", border: "none",
-                cursor: "pointer", padding: "6px 0",
+                flex: 1, display: "flex", flexDirection: "column",
+                alignItems: "center", justifyContent: "center",
+                background: "none", border: "none", cursor: "pointer",
+                padding: "6px 8px", gap: 4,
               }}
             >
-              <div style={{ display: "flex", justifyContent: "center", marginBottom: 3 }}>
-                <NavIcon id={t.id} active={active} size={22} />
-              </div>
+              <TabIcon tab={t} active={active} />
               <div style={{
-                fontFamily: BL.sans, fontSize: 10, fontWeight: 500,
+                fontFamily: BL.sans, fontSize: 10, fontWeight: active ? 600 : 400,
                 color: active ? BL.ink : BL.faint,
               }}>
                 {t.label}

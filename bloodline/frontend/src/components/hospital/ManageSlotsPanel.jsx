@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { createSlot, getHospitalSlots, getSlotBookings } from "../../api";
 import { BL } from "../../tokens";
 
@@ -241,6 +241,7 @@ function BloodbankView({ effectiveLoc, locations, onLocChange }) {
   const [loading,  setLoading]  = useState(true);
   const [seeding,  setSeeding]  = useState(false);
   const [selected, setSelected] = useState(null);
+  const fullSeedDone = useRef(false);
 
   function loadSlots() {
     setLoading(true);
@@ -252,23 +253,55 @@ function BloodbankView({ effectiveLoc, locations, onLocChange }) {
 
   useEffect(() => { loadSlots(); }, []);
 
-  // Auto-seed missing slots for selected location + date
+  // On first load: seed ALL 5 banks × next 7 days so donors always see slots
   useEffect(() => {
-    if (loading || seeding) return;
-    const blocks = generateBlocks(effectiveLoc, dateStr);
-    if (!blocks.length) return;
+    if (loading || seeding || fullSeedDone.current) return;
+    fullSeedDone.current = true;
 
-    const existing   = apiSlots.filter(s => s.location === effectiveLoc && s.date === dateStr);
-    const existingTs = new Set(existing.map(s => s.startTime));
-    const missing    = blocks.filter(b => !existingTs.has(b.startTime));
+    const base  = todayISO();
+    const dates = Array.from({ length: 7 }, (_, i) => addDays(base, i));
+    const allLocs = Object.keys(HOURS);
+
+    const missing = [];
+    for (const loc of allLocs) {
+      for (const d of dates) {
+        const blocks = generateBlocks(loc, d);
+        if (!blocks.length) continue;
+        const existingTs = new Set(
+          apiSlots.filter(s => s.location === loc && s.date === d).map(s => s.startTime)
+        );
+        blocks.filter(b => !existingTs.has(b.startTime)).forEach(b =>
+          missing.push({ location: loc, date: d, startTime: b.startTime, endTime: b.endTime })
+        );
+      }
+    }
     if (!missing.length) return;
 
     setSeeding(true);
     Promise.all(missing.map(b => createSlot({
-      location: effectiveLoc,
-      date: dateStr,
-      startTime: b.startTime,
-      endTime: b.endTime,
+      location: b.location, date: b.date,
+      startTime: b.startTime, endTime: b.endTime,
+      capacity: SLOT_CAPACITY,
+    })))
+      .then(() => loadSlots())
+      .catch(() => {})
+      .finally(() => setSeeding(false));
+  }, [loading]);
+
+  // Fallback: also seed for the specific date the user navigates to
+  useEffect(() => {
+    if (loading || seeding || !fullSeedDone.current) return;
+    const blocks = generateBlocks(effectiveLoc, dateStr);
+    if (!blocks.length) return;
+    const existingTs = new Set(
+      apiSlots.filter(s => s.location === effectiveLoc && s.date === dateStr).map(s => s.startTime)
+    );
+    const missing = blocks.filter(b => !existingTs.has(b.startTime));
+    if (!missing.length) return;
+    setSeeding(true);
+    Promise.all(missing.map(b => createSlot({
+      location: effectiveLoc, date: dateStr,
+      startTime: b.startTime, endTime: b.endTime,
       capacity: SLOT_CAPACITY,
     })))
       .then(() => loadSlots())
