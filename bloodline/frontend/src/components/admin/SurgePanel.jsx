@@ -84,6 +84,11 @@ export default function SurgePanel() {
     );
   }
 
+  const allTypesSelected = bloodTypes.length === BLOOD_TYPES.length;
+  function toggleAllTypes() {
+    setBloodTypes(allTypesSelected ? [] : [...BLOOD_TYPES]);
+  }
+
   async function handleEndSurge(alertId) {
     setEndingId(alertId);
     try {
@@ -171,11 +176,28 @@ export default function SurgePanel() {
                   </button>
                 );
               })}
+              {/* All-hands broadcast: selects every type so every donor is alerted */}
+              <button
+                type="button"
+                onClick={toggleAllTypes}
+                title="Alert donors of every blood type"
+                style={{
+                  height: 44, padding: "0 14px", borderRadius: 6,
+                  border: allTypesSelected ? `2px solid ${BL.surge}` : `1px solid ${BL.hair}`,
+                  background: allTypesSelected ? `${BL.surge}14` : BL.card,
+                  fontFamily: BL.mono, fontSize: 11, fontWeight: 600,
+                  color: allTypesSelected ? BL.surge : BL.muted, cursor: "pointer",
+                }}
+              >
+                {allTypesSelected ? "ALL ✓" : "ALL"}
+              </button>
             </div>
-            <div style={{ fontFamily: BL.mono, fontSize: 10, color: BL.muted, marginTop: 8, letterSpacing: 0.3 }}>
-              {bloodTypes.length
-                ? `${bloodLabel} selected · tap to toggle multiple`
-                : "Select one or more blood types"}
+            <div style={{ fontFamily: BL.mono, fontSize: 10, color: allTypesSelected ? BL.surge : BL.muted, marginTop: 8, letterSpacing: 0.3 }}>
+              {allTypesSelected
+                ? "All blood types · every donor will be alerted (all-hands)"
+                : bloodTypes.length
+                  ? `${bloodLabel} selected · tap to toggle multiple`
+                  : "Select one or more blood types"}
             </div>
           </div>
 

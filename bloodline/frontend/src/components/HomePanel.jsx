@@ -9,6 +9,7 @@ import { getToken } from "../auth";
 import { BL, riskToNeed } from "../tokens";
 import { resolveCoords, haversineKm, formatDistance } from "../geo";
 import { HomePanelSkeleton } from "./Skeleton";
+import { enableSurgePush } from "../push";
 
 function AppHeader({ sub, title, right }) {
   return (
@@ -141,6 +142,11 @@ export default function HomePanel({ onNavigate }) {
     setSnoozedUntil(until);
   }
 
+  function handleUnsnooze() {
+    localStorage.removeItem("surgeSnoozedUntil");
+    setSnoozedUntil(0);
+  }
+
   function fetchBookings() {
     getMyBookings()
       .then(d => setActiveBooking(d.bookings?.[0] ?? null))
@@ -171,7 +177,7 @@ export default function HomePanel({ onNavigate }) {
         alerts
           .filter(a => {
             const types = a.bloodTypes ?? (a.bloodType ? [a.bloodType] : []);
-            return a.geoTier === "island-wide" || types.includes(donor?.bloodType);
+            return types.includes(donor?.bloodType);
           })
           .forEach(pushBrowserNotification);
       })
@@ -190,10 +196,9 @@ export default function HomePanel({ onNavigate }) {
       }),
     ]).finally(() => setLoading(false));
 
-    // Ask once for permission to send browser push notifications for surges
-    if (typeof Notification !== "undefined" && Notification.permission === "default") {
-      Notification.requestPermission().catch(() => {});
-    }
+    // Register the service worker + subscribe to web push so surge alerts arrive
+    // even when the app is closed (also prompts for notification permission).
+    enableSurgePush();
 
     // Capture a live location fix (if the donor allows it) so surge radius tiers
     // can target where they actually are; falls back to home postal code server-side.
@@ -246,11 +251,14 @@ export default function HomePanel({ onNavigate }) {
 
   // Active surge: hidden if snoozed OR donor already has a confirmed booking
   const isSnoozed  = Date.now() < snoozedUntil;
+  // A surge only shows to a donor whose own blood type is being called for.
   const surgeMatchesUser = (a) => {
     const types = a.bloodTypes ?? (a.bloodType ? [a.bloodType] : []);
-    return a.geoTier === "island-wide" || types.includes(userType);
+    return types.includes(userType);
   };
   const activeSurge = (isSnoozed || activeBooking) ? null : (surgeAlerts.find(surgeMatchesUser) ?? null);
+  // A surge the donor would see if they hadn't snoozed — drives the "Resume alerts" notice.
+  const snoozedSurge = isSnoozed && !activeBooking ? (surgeAlerts.find(surgeMatchesUser) ?? null) : null;
 
   // Surge blood types: full label for flowing text, compact value for the badge
   const surgeTypes = activeSurge ? (activeSurge.bloodTypes ?? (activeSurge.bloodType ? [activeSurge.bloodType] : [])) : [];
@@ -1134,8 +1142,8 @@ export default function HomePanel({ onNavigate }) {
             <Tag>WHY YOU GOT THIS</Tag>
             <div style={{ fontFamily: BL.sans, fontSize: 12, color: BL.muted, lineHeight: 1.55, marginTop: 6 }}>
               {userType
-                ? `You're ${userType} and within the ${activeSurge.geoTier} alert tier. You can opt out in Profile → Notifications.`
-                : `You're within the ${activeSurge.geoTier} alert tier. You can opt out in Profile → Notifications.`}
+                ? `Your blood type (${userType}) is being called for${activeSurge.geoTier === "island-wide" ? " island-wide" : ` within the ${activeSurge.geoTier} tier`}. You can opt out in Profile → Notifications.`
+                : `Your blood type is being called for. You can opt out in Profile → Notifications.`}
             </div>
           </div>
         </div>
@@ -1178,6 +1186,28 @@ export default function HomePanel({ onNavigate }) {
   return (
     <div>
       <AppHeader sub={greeting} title={firstName ? `Hi, ${firstName}` : "Home"} />
+
+      {/* Snoozed surge notice — lets the donor resume alerts without devtools */}
+      {snoozedSurge && (
+        <div style={{
+          display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10,
+          background: BL.surgeBg, border: `1px solid ${BL.surge}44`, borderRadius: 8,
+          padding: "10px 14px", marginBottom: 14,
+        }}>
+          <div style={{ fontFamily: BL.sans, fontSize: 13, color: BL.ink }}>
+            ⏸ You snoozed an active <strong>{snoozedSurge.bloodTypes?.join("/") ?? snoozedSurge.bloodType}</strong> surge alert.
+          </div>
+          <button
+            onClick={handleUnsnooze}
+            style={{
+              flexShrink: 0, background: BL.surge, color: "#fff", border: "none", borderRadius: 6,
+              padding: "6px 14px", fontFamily: BL.sans, fontSize: 12, fontWeight: 600, cursor: "pointer",
+            }}
+          >
+            Resume alerts
+          </button>
+        </div>
+      )}
 
       {/* Node 1 — Can I donate? */}
       <TimelineNode dot={BL.ink} line tag="CAN I DONATE?" answer={eligibilityAnswer} sub={eligibilitySub} />
