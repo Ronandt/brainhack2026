@@ -19,15 +19,6 @@ if ($py313) {
 # 1. Build and deploy SAM stack
 Write-Host "Deploying SAM stack..." -ForegroundColor Cyan
 sam build
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "sam build failed - aborting (not deploying stale artifacts)." -ForegroundColor Red
-    exit 1
-}
-sam deploy
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "sam deploy failed - aborting." -ForegroundColor Red
-    exit 1
-}
 
 # 2. Grab outputs from CloudFormation
 $outputs = aws cloudformation describe-stacks --stack-name bloodline-dev `

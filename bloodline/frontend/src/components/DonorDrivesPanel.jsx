@@ -251,7 +251,13 @@ function MapcnLocationMap({ location, onSelect }) {
 // ── Bloodbank picker — card grid of 5 banks ──────────────────────────────────
 function BloodbankPicker({ allSlots, hasActiveBooking, onSelect, userCoords }) {
   const today = todayISO();
-  const banks = Object.keys(BANK_INFO);
+  const banks = Object.keys(BANK_INFO).sort((a, b) => {
+    if (!userCoords) return 0;
+    const ca = BLOODBANK_COORDS[a], cb = BLOODBANK_COORDS[b];
+    const da = ca ? haversineKm(userCoords.lat, userCoords.lng, ca.lat, ca.lng) : Infinity;
+    const db = cb ? haversineKm(userCoords.lat, userCoords.lng, cb.lat, cb.lng) : Infinity;
+    return da - db;
+  });
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
