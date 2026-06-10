@@ -67,7 +67,7 @@ export default function DrivesPanel() {
             Community drive queue
           </div>
           <div style={{ fontFamily: BL.sans, fontSize: 13, color: BL.muted, marginTop: 4 }}>
-            {`${drives.length} pending request${drives.length !== 1 ? "s" : ""} · approve, decline, or request edits.`}
+            {loading ? "Loading…" : `${drives.length} request${drives.length !== 1 ? "s" : ""} needing HSA review · approve to send to Red Cross, decline, or request edits.`}
           </div>
         </div>
         <div style={{ display: "flex", gap: 6 }}>
@@ -101,14 +101,21 @@ export default function DrivesPanel() {
                     {drive.location}
                   </div>
                 </div>
-                <Tag color={BL.need[need].fg} bg={BL.need[need].bg}>{BL.need[need].label} region</Tag>
+                <div style={{ display: "grid", justifyItems: "end", gap: 4 }}>
+                  <Tag color={BL.need[need].fg} bg={BL.need[need].bg}>{BL.need[need].label} region</Tag>
+                  <Tag color={BL.red} bg={BL.redSoft}>
+                    {drive.status === "redcross_rejected" ? "Red Cross rejected" : "Pending approval"}
+                  </Tag>
+                </div>
               </div>
 
               {/* When / Pool */}
               <div style={{ display: "flex", gap: 16, marginTop: 12 }}>
                 <div style={{ flex: 1 }}>
                   <Tag>When</Tag>
-                  <div style={{ fontFamily: BL.mono, fontSize: 11, color: BL.ink, marginTop: 3 }}>{drive.date}</div>
+                  <div style={{ fontFamily: BL.mono, fontSize: 11, color: BL.ink, marginTop: 3 }}>
+                    {drive.date}{drive.startTime ? ` · ${drive.startTime}` : ""}
+                  </div>
                 </div>
                 <div style={{ flex: 1 }}>
                   <Tag>Pool</Tag>
@@ -119,6 +126,31 @@ export default function DrivesPanel() {
                     )}
                   </div>
                 </div>
+              </div>
+
+              <div style={{ marginTop: 10, display: "grid", gap: 6 }}>
+                <div>
+                  <Tag>Blood types</Tag>
+                  <div style={{ fontFamily: BL.sans, fontSize: 12, color: BL.ink, marginTop: 3 }}>
+                    {drive.acceptedBloodTypes?.length > 0 ? drive.acceptedBloodTypes.join(", ") : "Any blood type"}
+                  </div>
+                </div>
+                {drive.notes && (
+                  <div>
+                    <Tag>Request notes</Tag>
+                    <div style={{ fontFamily: BL.sans, fontSize: 12, color: BL.muted, marginTop: 3, lineHeight: 1.4 }}>
+                      {drive.notes}
+                    </div>
+                  </div>
+                )}
+                {drive.redCrossRejectedReason && (
+                  <div style={{ background: BL.redSoft, border: `1px solid ${BL.red}33`, borderRadius: 5, padding: 9 }}>
+                    <Tag color={BL.red}>Red Cross reason</Tag>
+                    <div style={{ fontFamily: BL.sans, fontSize: 12, color: BL.redInk, marginTop: 3, lineHeight: 1.4 }}>
+                      {drive.redCrossRejectedReason}
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Forecast fit */}
@@ -152,7 +184,7 @@ export default function DrivesPanel() {
                     disabled={as.loading}
                     style={{ ...fillBtn, marginLeft: "auto" }}
                   >
-                    {as.loading ? "…" : "Approve"}
+                    {as.loading ? "…" : drive.status === "redcross_rejected" ? "Resubmit" : "Send to Red Cross"}
                   </button>
                 </div>
               )}

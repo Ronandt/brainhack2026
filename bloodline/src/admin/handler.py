@@ -41,6 +41,11 @@ def _is_hsa_admin(event):
     return "HSAAdmin" in claims.get("cognito:groups", "")
 
 
+def _is_redcross(event):
+    claims = event.get("requestContext", {}).get("authorizer", {}).get("claims", {})
+    return "RedCrossSG" in claims.get("cognito:groups", "")
+
+
 def _is_hospital_or_admin(event):
     claims = event.get("requestContext", {}).get("authorizer", {}).get("claims", {})
     groups = claims.get("cognito:groups", "")
@@ -72,6 +77,22 @@ def _dispatch(event: dict) -> dict:
         if not _is_hospital_or_admin(event):
             return _response(403, {"error": "Hospital staff or HSA admin access required"})
         return _record_donation(event)
+
+    # Red Cross final approval routes
+    if "/redcross/drives/pending" in path and method == "GET":
+        if not _is_redcross(event):
+            return _response(403, {"error": "Red Cross access required"})
+        return _redcross_pending_drives()
+    if "/redcross/drives/" in path and "/approve" in path and method == "POST":
+        if not _is_redcross(event):
+            return _response(403, {"error": "Red Cross access required"})
+        drive_id = path.split("/drives/")[1].split("/approve")[0]
+        return _redcross_approve_drive(drive_id, event)
+    if "/redcross/drives/" in path and "/reject" in path and method == "POST":
+        if not _is_redcross(event):
+            return _response(403, {"error": "Red Cross access required"})
+        drive_id = path.split("/drives/")[1].split("/reject")[0]
+        return _redcross_reject_drive(drive_id, event)
 
     # All other routes: HSA admin only
     if not _is_hsa_admin(event):
@@ -152,7 +173,7 @@ def _donor_segments():
 
 def _pending_drives():
     result = drives_table.scan(
-        FilterExpression=Attr("status").eq("pending_approval")
+        FilterExpression=Attr("status").eq("pending_approval") | Attr("status").eq("redcross_rejected")
     )
     drives = result.get("Items", [])
     for d in drives:
@@ -166,16 +187,16 @@ def _approve_drive(drive_id, event):
     approver = event["requestContext"]["authorizer"]["claims"]["sub"]
     drives_table.update_item(
         Key={"driveId": drive_id},
-        UpdateExpression="SET #s = :s, approvedBy = :a, approvedAt = :t",
+        UpdateExpression="SET #s = :s, approvedBy = :a, approvedAt = :t REMOVE redCrossRejectedReason, redCrossRejectedBy, redCrossRejectedAt",
         ExpressionAttributeNames={"#s": "status"},
         ExpressionAttributeValues={
-            ":s": "upcoming",
+            ":s": "pending_redcross_approval",
             ":a": approver,
             ":t": datetime.now(timezone.utc).isoformat(),
         },
     )
     logger.info("Drive approved", drive_id=drive_id, approver=approver)
-    return _response(200, {"driveId": drive_id, "status": "upcoming"})
+    return _response(200, {"driveId": drive_id, "status": "pending_redcross_approval"})
 
 
 def _reject_drive(drive_id):
@@ -186,6 +207,56 @@ def _reject_drive(drive_id):
         ExpressionAttributeValues={":s": "rejected"},
     )
     return _response(200, {"driveId": drive_id, "status": "rejected"})
+
+
+def _redcross_pending_drives():
+    result = drives_table.scan(
+        FilterExpression=Attr("status").eq("pending_redcross_approval")
+    )
+    drives = result.get("Items", [])
+    for d in drives:
+        for k in ("capacity", "booked"):
+            if k in d:
+                d[k] = int(d[k])
+    return _response(200, {"drives": drives, "count": len(drives)})
+
+
+def _redcross_approve_drive(drive_id, event):
+    approver = event["requestContext"]["authorizer"]["claims"]["sub"]
+    drives_table.update_item(
+        Key={"driveId": drive_id},
+        UpdateExpression="SET #s = :s, redCrossApprovedBy = :a, redCrossApprovedAt = :t REMOVE redCrossRejectedReason",
+        ExpressionAttributeNames={"#s": "status"},
+        ExpressionAttributeValues={
+            ":s": "upcoming",
+            ":a": approver,
+            ":t": datetime.now(timezone.utc).isoformat(),
+        },
+    )
+    logger.info("Drive approved by Red Cross", drive_id=drive_id, approver=approver)
+    return _response(200, {"driveId": drive_id, "status": "upcoming"})
+
+
+def _redcross_reject_drive(drive_id, event):
+    body = json.loads(event.get("body") or "{}")
+    reason = (body.get("reason") or "").strip()
+    if not reason:
+        return _response(400, {"error": "reason is required"})
+
+    rejector = event["requestContext"]["authorizer"]["claims"]["sub"]
+    drives_table.update_item(
+        Key={"driveId": drive_id},
+        UpdateExpression="SET #s = :s, redCrossRejectedBy = :r, redCrossRejectedAt = :t, redCrossRejectedReason = :reason",
+        ExpressionAttributeNames={"#s": "status"},
+        ExpressionAttributeValues={
+            ":s": "redcross_rejected",
+            ":r": rejector,
+            ":t": datetime.now(timezone.utc).isoformat(),
+            ":reason": reason,
+        },
+    )
+    logger.info("Drive rejected by Red Cross", drive_id=drive_id, rejector=rejector)
+    return _response(200, {"driveId": drive_id, "status": "redcross_rejected", "reason": reason})
 
 
 def _blood_stock_overview():

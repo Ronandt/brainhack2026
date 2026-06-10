@@ -270,7 +270,7 @@ def _create_drive(event: dict) -> dict:
         "availableSlots": int(capacity),
         "acceptedBloodTypes": body.get("acceptedBloodTypes", ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"]),
         "notes": body.get("notes", ""),
-        "status": "upcoming",
+        "status": "pending_approval",
         "createdAt": now,
         "createdBy": creator_id,
     }
