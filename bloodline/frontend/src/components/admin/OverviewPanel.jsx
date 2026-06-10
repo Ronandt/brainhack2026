@@ -7,25 +7,32 @@ function statusToNeed(s) {
   return ({ Healthy: "ok", Moderate: "low", Low: "urgent", Critical: "critical" })[s] ?? "ok";
 }
 
-function Tag({ children, color, bg }) {
+// Soft card — shadow depth, no hard border
+function Card({ children, style, pad = 18 }) {
   return (
-    <span style={{
-      fontFamily: BL.mono, fontSize: 9, letterSpacing: 0.6, textTransform: "uppercase",
-      color: color || BL.muted,
-      ...(bg ? { background: bg, padding: "2px 6px", borderRadius: 3 } : {}),
+    <div style={{
+      background: BL.card,
+      borderRadius: 14,
+      boxShadow: "0 1px 10px rgba(0,0,0,0.06), 0 0 0 1px rgba(0,0,0,0.04)",
+      padding: pad,
+      ...style,
     }}>
       {children}
-    </span>
+    </div>
   );
 }
 
-function W({ children, style, pad = 14 }) {
+function CardHeader({ title, sub, right, pad = "14px 18px" }) {
   return (
     <div style={{
-      background: BL.card, border: `1px solid ${BL.hair}`, borderRadius: 6,
-      padding: pad, ...style,
+      display: "flex", justifyContent: "space-between", alignItems: "center",
+      padding: pad, borderBottom: `1px solid ${BL.fill}`,
     }}>
-      {children}
+      <div>
+        <div style={{ fontFamily: BL.sans, fontSize: 14, fontWeight: 600, color: BL.ink }}>{title}</div>
+        {sub && <div style={{ fontFamily: BL.mono, fontSize: 9, color: BL.faint, marginTop: 3, letterSpacing: 0.5, textTransform: "uppercase" }}>{sub}</div>}
+      </div>
+      {right}
     </div>
   );
 }
@@ -39,8 +46,6 @@ const BT_COLORS = {
   "AB+": "#7c3aed", "AB-": "#4c1d95",
 };
 
-// Per-blood-type risk thresholds mirroring predict/handler.py _BT_THRESHOLDS
-// [ok_min, low_min, urgent_min] — below urgent_min is critical
 const BT_THRESHOLDS = {
   "O+":  [65, 40, 18],
   "O-":  [62, 38, 16],
@@ -66,7 +71,6 @@ function ForecastChart({ forecast, hovered, setHovered }) {
   function xOf(i)   { return PAD.left + (i / Math.max(days.length - 1, 1)) * cW; }
   function yOf(pct) { return PAD.top + cH - (Math.min(100, Math.max(0, pct)) / 100) * cH; }
 
-  // When a type is hovered: type-specific thresholds drive the zone fills + gridlines
   const thresholds = hovered ? BT_THRESHOLDS[hovered] : null;
   const [okMin, lowMin, urgentMin] = thresholds ?? [60, 35, 15];
 
@@ -81,38 +85,30 @@ function ForecastChart({ forecast, hovered, setHovered }) {
     : [25, 50, 75].map(pct => ({ pct, need: null }));
 
   return (
-    <W pad={0} style={{ marginBottom: 14 }}>
-      <div style={{ padding: "12px 16px", borderBottom: `1px solid ${BL.hair}` }}>
-        <div style={{ fontFamily: BL.sans, fontSize: 14, fontWeight: 600, color: BL.ink }}>14-day projected stock</div>
-        <Tag>model · anchored to live Red Cross data · hover a type to see its risk thresholds</Tag>
-      </div>
-
-      <div
-        style={{ padding: "12px 16px" }}
-        onMouseLeave={() => setHovered(null)}
-      >
+    <Card pad={0} style={{ marginBottom: 14 }}>
+      <CardHeader
+        title="14-day projected stock"
+        sub="model · anchored to live Red Cross data · hover a type to see its risk thresholds"
+      />
+      <div style={{ padding: "14px 18px" }} onMouseLeave={() => setHovered(null)}>
         <svg
           viewBox={`0 0 ${W_vb} ${H_vb}`}
           width="100%"
           style={{ display: "block", overflow: "visible" }}
           onMouseEnter={() => setHovered(null)}
         >
-          {/* Type-specific zone fills — only when a type is hovered */}
           {zoneFills.map(({ from, to, need }) => (
             <rect key={need}
               x={PAD.left} y={yOf(to)} width={cW} height={Math.max(0, yOf(from) - yOf(to))}
               fill={BL.need[need].bg} opacity={0.6}
             />
           ))}
-
-          {/* Gridlines — standard when idle, threshold-aligned when hovered */}
           {gridLines.map(({ pct, need }) => (
             <g key={pct}>
               <line
                 x1={PAD.left} y1={yOf(pct)} x2={PAD.left + cW} y2={yOf(pct)}
                 stroke={need ? BL.need[need].fg : BL.hair}
-                strokeWidth={need ? 0.8 : 0.5}
-                strokeDasharray="3,4"
+                strokeWidth={need ? 0.8 : 0.5} strokeDasharray="3,4"
                 opacity={need ? 0.7 : 1}
               />
               <text x={PAD.left - 5} y={yOf(pct) + 3.5}
@@ -122,8 +118,6 @@ function ForecastChart({ forecast, hovered, setHovered }) {
               </text>
             </g>
           ))}
-
-          {/* Zone labels — placed at midpoint of each zone so they sit inside their band */}
           {hovered && [
             { need: "critical", top: urgentMin,  bottom: 0        },
             { need: "urgent",   top: lowMin,     bottom: urgentMin },
@@ -134,14 +128,11 @@ function ForecastChart({ forecast, hovered, setHovered }) {
             return (
               <text key={need}
                 x={PAD.left + cW + 4} y={yOf(midPct) + 3.5}
-                fontFamily={BL.mono} fontSize={7.5} fill={BL.need[need].fg} fontWeight={600}
-              >
+                fontFamily={BL.mono} fontSize={7.5} fill={BL.need[need].fg} fontWeight={600}>
                 {BL.need[need].label}
               </text>
             );
           })}
-
-          {/* X axis date labels */}
           {days.map((d, i) => {
             if (i % 2 !== 0 && i !== days.length - 1) return null;
             const label = new Date(d.date + "T00:00:00").toLocaleDateString("en-SG", { day: "2-digit", month: "short" });
@@ -152,14 +143,10 @@ function ForecastChart({ forecast, hovered, setHovered }) {
               </text>
             );
           })}
-
-          {/* Today marker */}
           <line x1={xOf(0)} y1={PAD.top} x2={xOf(0)} y2={PAD.top + cH}
-            stroke={BL.ink} strokeWidth={1} strokeDasharray="3,3" opacity={0.35}
+            stroke={BL.ink} strokeWidth={1} strokeDasharray="3,3" opacity={0.3}
           />
           <text x={xOf(0) + 3} y={PAD.top + 9} fontFamily={BL.mono} fontSize={7.5} fill={BL.muted}>Today</text>
-
-          {/* Lines per blood type */}
           {types.map(bt => {
             const pts = forecast[bt] ?? [];
             if (pts.length < 2) return null;
@@ -169,41 +156,23 @@ function ForecastChart({ forecast, hovered, setHovered }) {
             const last = pts[pts.length - 1];
             return (
               <g key={bt}>
-                {/* Visible line */}
-                <polyline
-                  points={points}
-                  fill="none"
-                  stroke={BT_COLORS[bt]}
-                  strokeWidth={isHovered ? 2.4 : 1.5}
-                  strokeLinejoin="round"
-                  strokeLinecap="round"
-                  opacity={active ? 1 : 0.07}
-                  style={{ pointerEvents: "none" }}
+                <polyline points={points} fill="none" stroke={BT_COLORS[bt]}
+                  strokeWidth={isHovered ? 2.4 : 1.5} strokeLinejoin="round" strokeLinecap="round"
+                  opacity={active ? 1 : 0.07} style={{ pointerEvents: "none" }}
                 />
-                {/* Wide transparent hit area — captures hover */}
-                <polyline
-                  points={points}
-                  fill="none"
-                  stroke="transparent"
-                  strokeWidth={18}
+                <polyline points={points} fill="none" stroke="transparent" strokeWidth={18}
                   onMouseEnter={e => { e.stopPropagation(); setHovered(bt); }}
                   style={{ cursor: "crosshair" }}
                 />
-                {/* Dot at today */}
                 {active && (
                   <circle cx={xOf(0)} cy={yOf(pts[0].percentage)} r={isHovered ? 4 : 2.5}
-                    fill={BT_COLORS[bt]} opacity={active ? 1 : 0.07}
-                    style={{ pointerEvents: "none" }}
+                    fill={BT_COLORS[bt]} opacity={active ? 1 : 0.07} style={{ pointerEvents: "none" }}
                   />
                 )}
-                {/* End label — only show when this type is hovered or nothing is hovered */}
                 {active && (
-                  <text
-                    x={xOf(pts.length - 1) + 4} y={yOf(last.percentage) + 3.5}
+                  <text x={xOf(pts.length - 1) + 4} y={yOf(last.percentage) + 3.5}
                     fontFamily={BL.mono} fontSize={isHovered ? 9.5 : 8} fontWeight={isHovered ? 700 : 600}
-                    fill={BT_COLORS[bt]} opacity={active ? 1 : 0}
-                    style={{ pointerEvents: "none" }}
-                  >
+                    fill={BT_COLORS[bt]} opacity={active ? 1 : 0} style={{ pointerEvents: "none" }}>
                     {bt}
                   </text>
                 )}
@@ -213,32 +182,29 @@ function ForecastChart({ forecast, hovered, setHovered }) {
         </svg>
       </div>
 
-      {/* Blood type legend — hover to isolate */}
+      {/* Blood type legend */}
       <div
-        style={{ padding: "8px 16px", display: "flex", gap: 5, flexWrap: "wrap", borderTop: `1px solid ${BL.hair}` }}
+        style={{ padding: "10px 18px", display: "flex", gap: 6, flexWrap: "wrap", borderTop: `1px solid ${BL.fill}` }}
         onMouseLeave={() => setHovered(null)}
       >
         {types.map(bt => {
           const active = hovered === null || hovered === bt;
           return (
-            <button
-              key={bt}
-              onMouseEnter={() => setHovered(bt)}
+            <button key={bt} onMouseEnter={() => setHovered(bt)}
               style={{
-                padding: "3px 9px", borderRadius: 4, cursor: "default",
+                padding: "4px 10px", borderRadius: 6, cursor: "default",
                 border: `1.5px solid ${BT_COLORS[bt]}`,
                 background: active ? BT_COLORS[bt] : "transparent",
                 color: active ? "#fff" : BT_COLORS[bt],
                 fontFamily: BL.mono, fontSize: 10, fontWeight: 600,
                 transition: "all 0.1s",
-              }}
-            >
+              }}>
               {bt}
             </button>
           );
         })}
       </div>
-    </W>
+    </Card>
   );
 }
 
@@ -248,46 +214,42 @@ function ShortageHeatmap({ forecast, hovered }) {
   const days = forecast[types[0]] ?? [];
 
   return (
-    <W pad={0} style={{ marginBottom: 14 }}>
-      <div style={{ padding: "12px 16px", borderBottom: `1px solid ${BL.hair}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <div>
-          <div style={{ fontFamily: BL.sans, fontSize: 14, fontWeight: 600, color: BL.ink }}>14-day shortage heatmap</div>
-          <Tag>colour = risk level · value = projected %{hovered ? ` · showing ${hovered}` : ""}</Tag>
-        </div>
-        <div style={{ display: "flex", gap: 10 }}>
-          {["ok", "low", "urgent", "critical"].map(n => (
-            <div key={n} style={{ display: "flex", alignItems: "center", gap: 4 }}>
-              <div style={{ width: 10, height: 10, background: BL.need[n].bg, border: `1px solid ${BL.need[n].fg}66`, borderRadius: 2 }} />
-              <span style={{ fontFamily: BL.mono, fontSize: 8, color: BL.need[n].fg, textTransform: "uppercase", letterSpacing: 0.4 }}>
-                {BL.need[n].label}
-              </span>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <div style={{ padding: "12px 16px", overflowX: "auto" }}>
-        {/* Date header */}
-        <div style={{ display: "flex", marginBottom: 4, paddingLeft: 36 }}>
+    <Card pad={0} style={{ marginBottom: 14 }}>
+      <CardHeader
+        title="14-day shortage heatmap"
+        sub={`colour = risk level · value = projected %${hovered ? ` · showing ${hovered}` : ""}`}
+        right={
+          <div style={{ display: "flex", gap: 8 }}>
+            {["ok", "low", "urgent", "critical"].map(n => (
+              <div key={n} style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                <div style={{ width: 9, height: 9, background: BL.need[n].bg, border: `1px solid ${BL.need[n].fg}55`, borderRadius: 2 }} />
+                <span style={{ fontFamily: BL.mono, fontSize: 8, color: BL.need[n].fg, textTransform: "uppercase", letterSpacing: 0.4 }}>
+                  {BL.need[n].label}
+                </span>
+              </div>
+            ))}
+          </div>
+        }
+      />
+      <div style={{ padding: "14px 18px", overflowX: "auto" }}>
+        <div style={{ display: "flex", marginBottom: 6, paddingLeft: 36 }}>
           {days.map((d, i) => (
             <div key={i} style={{
               flex: "0 0 44px", margin: "0 1px", textAlign: "center",
-              fontFamily: BL.mono, fontSize: 8, color: i === 0 ? BL.ink : BL.muted,
+              fontFamily: BL.mono, fontSize: 8,
+              color: i === 0 ? BL.ink : BL.faint,
               fontWeight: i === 0 ? 600 : 400, letterSpacing: 0.2,
             }}>
               {i === 0 ? "Today" : new Date(d.date + "T00:00:00").toLocaleDateString("en-SG", { day: "2-digit", month: "short" })}
             </div>
           ))}
         </div>
-
-        {/* Heatmap rows */}
         {types.map(bt => {
           const isActive = hovered === null || hovered === bt;
           return (
             <div key={bt} style={{
               display: "flex", alignItems: "center", marginBottom: 3,
-              opacity: isActive ? 1 : 0.15,
-              transition: "opacity 0.15s",
+              opacity: isActive ? 1 : 0.12, transition: "opacity 0.15s",
             }}>
               <div style={{
                 width: 36, fontFamily: BL.mono, fontSize: 10, fontWeight: 700,
@@ -298,15 +260,17 @@ function ShortageHeatmap({ forecast, hovered }) {
               {(forecast[bt] ?? []).map((d, i) => {
                 const need = d.riskLevel;
                 return (
-                  <div key={i} title={`${bt} · ${d.date} · ${Math.round(d.percentage)}% · ${need}`} style={{
-                    flex: "0 0 44px", height: 36,
-                    background: BL.need[need].bg,
-                    border: `1px solid ${i === 0 ? BL.ink : BL.need[need].fg + "44"}`,
-                    borderWidth: i === 0 ? "1px 1px 1px 2px" : "1px",
-                    display: "flex", flexDirection: "column",
-                    alignItems: "center", justifyContent: "center",
-                    borderRadius: 2, margin: "0 1px",
-                  }}>
+                  <div key={i}
+                    title={`${bt} · ${d.date} · ${Math.round(d.percentage)}% · ${need}`}
+                    style={{
+                      flex: "0 0 44px", height: 36,
+                      background: BL.need[need].bg,
+                      border: `1px solid ${i === 0 ? BL.need[need].fg + "88" : BL.need[need].fg + "33"}`,
+                      borderWidth: i === 0 ? "1px 1px 1px 2px" : "1px",
+                      display: "flex", flexDirection: "column",
+                      alignItems: "center", justifyContent: "center",
+                      borderRadius: 4, margin: "0 1px",
+                    }}>
                     <div style={{ fontFamily: BL.mono, fontSize: 9, fontWeight: 700, color: BL.need[need].fg, lineHeight: 1 }}>
                       {Math.round(d.percentage)}%
                     </div>
@@ -320,7 +284,7 @@ function ShortageHeatmap({ forecast, hovered }) {
           );
         })}
       </div>
-    </W>
+    </Card>
   );
 }
 
@@ -345,7 +309,6 @@ export default function OverviewPanel() {
     ]).finally(() => setLoading(false));
   }, []);
 
-  // Live LTA traffic incidents — poll every 60s so the ops feed stays current.
   useEffect(() => {
     function loadIncidents() {
       getTrafficIncidents().then(d => {
@@ -358,10 +321,10 @@ export default function OverviewPanel() {
     return () => clearInterval(id);
   }, []);
 
-  const stockByType  = Object.fromEntries(bloodStock.map(s => [s.bloodType, s]));
-  const activeAlerts = alerts.filter(a => a.status === "active");
+  const stockByType   = Object.fromEntries(bloodStock.map(s => [s.bloodType, s]));
+  const activeAlerts  = alerts.filter(a => a.status === "active");
   const criticalTypes = BLOOD_TYPE_ORDER.filter(bt => stockByType[bt] && statusToNeed(stockByType[bt].status) === "critical");
-  const urgentCount = BLOOD_TYPE_ORDER.filter(bt => {
+  const urgentCount   = BLOOD_TYPE_ORDER.filter(bt => {
     const n = stockByType[bt] ? statusToNeed(stockByType[bt].status) : null;
     return n === "urgent" || n === "critical";
   }).length || null;
@@ -372,17 +335,18 @@ export default function OverviewPanel() {
 
   return (
     <div style={{ display: "flex", gap: 0, margin: "-20px -24px", height: "calc(100vh - 48px)", overflow: "hidden" }}>
-      {/* ── Main content ────────────────────────── */}
-      <div style={{ flex: 1, padding: "20px 24px", overflowY: "auto", minWidth: 0 }}>
+
+      {/* ── Main content ─────────────────────────── */}
+      <div style={{ flex: 1, padding: "24px 28px", overflowY: "auto", minWidth: 0 }}>
 
         {/* Page header */}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20 }}>
           <div>
-            <div style={{ fontFamily: BL.sans, fontSize: 22, fontWeight: 600, color: BL.ink, letterSpacing: -0.3 }}>
+            <div style={{ fontFamily: BL.sans, fontSize: 20, fontWeight: 700, color: BL.ink, letterSpacing: -0.4 }}>
               14-day shortage forecast
             </div>
             <div style={{ fontFamily: BL.sans, fontSize: 13, color: BL.muted, marginTop: 4 }}>
-              Real-time blood supply status across Singapore · updated {status?.asOf ?? "—"}
+              Real-time blood supply across Singapore · updated {status?.asOf ?? "—"}
             </div>
           </div>
           <div style={{ display: "flex", gap: 6 }}>
@@ -392,77 +356,123 @@ export default function OverviewPanel() {
           </div>
         </div>
 
-        {/* KPI grid */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 16 }}>
+        {/* ── KPI row ─────────────────────────────── */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 18 }}>
           {[
-            { l: "TYPES AT RISK",    v: urgentCount != null ? `${urgentCount} of 8` : "—", sub: criticalTypes.length > 0 ? `${criticalTypes.join(", ")} critical` : "monitor daily", tone: urgentCount > 0 ? "critical" : null },
-            { l: "ACTIVE SURGES",   v: activeAlerts.length, sub: activeAlerts.length > 0 ? `${activeAlerts[0].bloodType} · ${activeAlerts[0].geoTier}` : "stand-by", tone: activeAlerts.length > 0 ? "urgent" : null },
-            { l: "NATIONAL STATUS", v: status?.nationalStatus?.toUpperCase() ?? "—", sub: "HSA blood supply ops", tone: null },
-            { l: "TOTAL ALERTS",    v: alerts.length, sub: `${activeAlerts.length} currently active`, tone: null },
+            {
+              label: "Types at risk",
+              value: urgentCount != null ? `${urgentCount} of 8` : "—",
+              sub: criticalTypes.length > 0 ? `${criticalTypes.join(", ")} critical` : "monitor daily",
+              tone: urgentCount > 0 ? "critical" : null,
+            },
+            {
+              label: "Active surges",
+              value: activeAlerts.length,
+              sub: activeAlerts.length > 0 ? `${activeAlerts[0].bloodType} · ${activeAlerts[0].geoTier}` : "stand-by",
+              tone: activeAlerts.length > 0 ? "urgent" : null,
+            },
+            {
+              label: "National status",
+              value: status?.nationalStatus ?? "—",
+              sub: "HSA blood supply ops",
+              tone: null,
+            },
+            {
+              label: "Total alerts",
+              value: alerts.length,
+              sub: `${activeAlerts.length} currently active`,
+              tone: null,
+            },
           ].map((k, i) => (
-            <W key={i} pad={14}>
-              <Tag>{k.l}</Tag>
-              <div style={{ fontFamily: BL.mono, fontSize: 26, fontWeight: 600, color: BL.ink, marginTop: 4, letterSpacing: -0.6 }}>{k.v}</div>
-              <div style={{ fontFamily: BL.sans, fontSize: 11, color: k.tone ? BL.need[k.tone].fg : BL.muted, marginTop: 2 }}>{k.sub}</div>
-            </W>
+            <Card key={i} pad={0}>
+              <div style={{
+                padding: "16px 18px",
+                borderLeft: k.tone ? `3px solid ${BL.need[k.tone].fg}` : "3px solid transparent",
+                borderRadius: "14px",
+              }}>
+                <div style={{ fontFamily: BL.mono, fontSize: 9, letterSpacing: 0.6, textTransform: "uppercase", color: BL.faint, marginBottom: 8 }}>
+                  {k.label}
+                </div>
+                <div style={{ fontFamily: BL.mono, fontSize: 28, fontWeight: 700, color: BL.ink, letterSpacing: -0.8, lineHeight: 1 }}>
+                  {k.value}
+                </div>
+                <div style={{ fontFamily: BL.sans, fontSize: 12, color: k.tone ? BL.need[k.tone].fg : BL.muted, marginTop: 6 }}>
+                  {k.sub}
+                </div>
+              </div>
+            </Card>
           ))}
         </div>
 
-        {/* Live stock grid */}
-        <W pad={0} style={{ marginBottom: 14 }}>
-          <div style={{ padding: "12px 16px", borderBottom: `1px solid ${BL.hair}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <div>
-              <div style={{ fontFamily: BL.sans, fontSize: 14, fontWeight: 600, color: BL.ink }}>Live stock by blood type</div>
-              <Tag>Red Cross SG · scraped every 15 min{stockUpdatedAt ? ` · ${stockUpdatedAt.slice(0, 16).replace("T", " ")}` : ""}</Tag>
-            </div>
-            <div style={{ display: "flex", gap: 10, fontFamily: BL.mono, fontSize: 9 }}>
-              {["ok", "low", "urgent", "critical"].map(k => (
-                <span key={k} style={{ color: BL.need[k].fg }}>● {BL.need[k].label}</span>
-              ))}
-            </div>
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(8, 1fr)", padding: "16px" }}>
+        {/* ── Live stock grid ──────────────────────── */}
+        <Card pad={0} style={{ marginBottom: 14 }}>
+          <CardHeader
+            title="Live stock by blood type"
+            sub={`Red Cross SG · scraped every 15 min${stockUpdatedAt ? ` · ${stockUpdatedAt.slice(0, 16).replace("T", " ")}` : ""}`}
+            right={
+              <div style={{ display: "flex", gap: 10, fontFamily: BL.mono, fontSize: 9 }}>
+                {["ok", "low", "urgent", "critical"].map(k => (
+                  <span key={k} style={{ color: BL.need[k].fg }}>● {BL.need[k].label}</span>
+                ))}
+              </div>
+            }
+          />
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(8, 1fr)", gap: 8, padding: "18px" }}>
             {BLOOD_TYPE_ORDER.map(bt => {
               const info = stockByType[bt];
               const need = info ? statusToNeed(info.status) : "ok";
               return (
                 <div key={bt} style={{
-                  background: BL.need[need].bg, border: `1px solid ${BL.need[need].fg}22`,
-                  borderRadius: 4, margin: 4, padding: "14px 8px", textAlign: "center",
+                  background: BL.need[need].bg,
+                  borderRadius: 10, padding: "14px 8px", textAlign: "center",
+                  boxShadow: `0 0 0 1px ${BL.need[need].fg}20`,
                 }}>
-                  <div style={{ fontFamily: BL.mono, fontSize: 13, fontWeight: 700, color: BL.ink }}>{bt}</div>
-                  <div style={{ fontFamily: BL.mono, fontSize: 22, fontWeight: 600, color: BL.ink, marginTop: 4, letterSpacing: -0.5 }}>
+                  <div style={{ fontFamily: BL.mono, fontSize: 12, fontWeight: 700, color: BL.ink, marginBottom: 4 }}>{bt}</div>
+                  <div style={{ fontFamily: BL.mono, fontSize: 22, fontWeight: 700, color: BL.ink, letterSpacing: -0.5, lineHeight: 1 }}>
                     {info ? `${info.percentage}%` : "—"}
                   </div>
-                  <div style={{ fontFamily: BL.mono, fontSize: 9, color: BL.need[need].fg, marginTop: 3, letterSpacing: 0.4, textTransform: "uppercase" }}>
+                  <div style={{ fontFamily: BL.mono, fontSize: 9, color: BL.need[need].fg, marginTop: 5, letterSpacing: 0.4, textTransform: "uppercase" }}>
                     {info?.status ?? need}
                   </div>
                 </div>
               );
             })}
           </div>
-        </W>
+        </Card>
 
-        {/* Forecast visualisations */}
+        {/* Forecast chart + heatmap */}
         {hasForecast && <ForecastChart forecast={forecast} hovered={hovered} setHovered={setHovered} />}
         {hasForecast && <ShortageHeatmap forecast={forecast} hovered={hovered} />}
 
         {/* Active alerts */}
         {activeAlerts.length > 0 && (
-          <W pad={0}>
-            <div style={{ padding: "12px 16px", borderBottom: `1px solid ${BL.hair}` }}>
-              <Tag color={BL.need.urgent.fg}>Active Surge Alerts · {activeAlerts.length}</Tag>
-            </div>
+          <Card pad={0}>
+            <CardHeader
+              title="Active surge alerts"
+              sub={`${activeAlerts.length} active`}
+              right={
+                <span style={{ fontFamily: BL.mono, fontSize: 9, color: BL.need.urgent.fg, letterSpacing: 0.5, textTransform: "uppercase" }}>
+                  ● Live
+                </span>
+              }
+            />
             {activeAlerts.map((a, i) => (
               <div key={a.alertId} style={{
                 display: "flex", alignItems: "center", gap: 16,
-                padding: "12px 16px", borderTop: i > 0 ? `1px solid ${BL.hair}` : "none",
+                padding: "12px 18px", borderTop: i > 0 ? `1px solid ${BL.fill}` : "none",
               }}>
-                <div style={{ fontFamily: BL.mono, fontWeight: 600, color: BL.red, fontSize: 14, minWidth: 36 }}>{a.bloodType}</div>
-                <div style={{ flex: 1, fontFamily: BL.sans, fontSize: 13, color: BL.ink }}>{a.geoTier} — {a.message?.slice(0, 60)}</div>
+                <div style={{
+                  fontFamily: BL.mono, fontWeight: 700, color: "#fff", fontSize: 12,
+                  background: BL.surge, borderRadius: 6, padding: "4px 8px", flexShrink: 0,
+                }}>
+                  {a.bloodType}
+                </div>
+                <div style={{ flex: 1, fontFamily: BL.sans, fontSize: 13, color: BL.ink }}>
+                  {a.geoTier} — {a.message?.slice(0, 60)}
+                </div>
                 <div style={{ textAlign: "right" }}>
                   <div style={{ fontFamily: BL.mono, fontSize: 10, color: BL.muted }}>
-                    {a.activatedAt?.slice(0, 16).replace("T", " ")} · {a.donorsNotified ?? 0} notified · {a.bookings ?? 0} bookings
+                    {a.activatedAt?.slice(0, 16).replace("T", " ")} · {a.donorsNotified ?? 0} notified
                   </div>
                   <div style={{ fontFamily: BL.mono, fontSize: 10, fontWeight: 600, color: BL.need.ok.fg, marginTop: 2 }}>
                     {a.status?.toUpperCase()}
@@ -470,85 +480,137 @@ export default function OverviewPanel() {
                 </div>
               </div>
             ))}
-          </W>
+          </Card>
         )}
       </div>
 
-      {/* ── Right rail ──────────────────────────── */}
-      <div style={{ width: 300, borderLeft: `1px solid ${BL.hair}`, background: "#fdfcf8", padding: 20, overflowY: "auto", flexShrink: 0 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-          <Tag color={incidents.length > 0 ? BL.need.critical.fg : undefined}>
-            Live Accidents · LTA{incidents.length > 0 ? ` · ${incidents.length}` : ""}
-          </Tag>
-          {incidentsUpdatedAt && (
-            <Tag>{incidentsUpdatedAt.slice(11, 16)}</Tag>
-          )}
-        </div>
-        <div style={{ marginTop: 6, maxHeight: 220, overflowY: "auto" }}>
-          {incidents.length === 0 ? (
-            <div style={{ padding: 8, borderRadius: 5, background: BL.need.ok.bg, border: `1px solid ${BL.need.ok.fg}33` }}>
-              <div style={{ fontFamily: BL.sans, fontSize: 11, color: BL.muted, lineHeight: 1.35 }}>
-                No accidents on the road network.
-              </div>
+      {/* ── Right rail ───────────────────────────── */}
+      <div style={{
+        width: 288, background: BL.paper,
+        borderLeft: `1px solid ${BL.hair}`,
+        padding: "24px 20px",
+        overflowY: "auto", flexShrink: 0,
+      }}>
+
+        {/* Live incidents */}
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+            <div style={{
+              fontFamily: BL.mono, fontSize: 10, letterSpacing: 0.6, textTransform: "uppercase",
+              color: incidents.length > 0 ? BL.need.critical.fg : BL.faint,
+            }}>
+              Live accidents · LTA{incidents.length > 0 ? ` · ${incidents.length}` : ""}
             </div>
-          ) : (
-            incidents.map((inc, i) => {
-              const tone = BL.need[inc.tone] ? inc.tone : "critical";
-              return (
-                <div key={i} style={{ padding: "6px 8px", borderRadius: 5, marginBottom: 5, background: BL.need[tone].bg, border: `1px solid ${BL.need[tone].fg}33` }}>
-                  <div style={{
-                    fontFamily: BL.sans, fontSize: 11, color: BL.ink, lineHeight: 1.35,
-                    display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden",
-                  }}>{inc.message}</div>
+            {incidentsUpdatedAt && (
+              <span style={{ fontFamily: BL.mono, fontSize: 9, color: BL.faint }}>{incidentsUpdatedAt.slice(11, 16)}</span>
+            )}
+          </div>
+          <div style={{ maxHeight: 220, overflowY: "auto" }}>
+            {incidents.length === 0 ? (
+              <div style={{
+                padding: "10px 12px", borderRadius: 8,
+                background: BL.need.ok.bg,
+                boxShadow: `0 0 0 1px ${BL.need.ok.fg}25`,
+              }}>
+                <div style={{ fontFamily: BL.sans, fontSize: 12, color: BL.muted, lineHeight: 1.45 }}>
+                  No accidents on the road network.
                 </div>
-              );
-            })
-          )}
+              </div>
+            ) : (
+              incidents.map((inc, i) => {
+                const tone = BL.need[inc.tone] ? inc.tone : "critical";
+                return (
+                  <div key={i} style={{
+                    padding: "8px 10px", borderRadius: 8, marginBottom: 6,
+                    background: BL.need[tone].bg,
+                    boxShadow: `0 0 0 1px ${BL.need[tone].fg}30`,
+                  }}>
+                    <div style={{
+                      fontFamily: BL.sans, fontSize: 12, color: BL.ink, lineHeight: 1.4,
+                      display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden",
+                    }}>
+                      {inc.message}
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
         </div>
 
-        <Tag style={{ marginTop: 8, display: "block" }}>Model Confidence</Tag>
-        <W pad={12} style={{ marginTop: 6 }}>
-          {[
-            ["Method",       "Seasonality + mean-rev."],
-            ["Anchor",       "Live Red Cross SG"],
-            ["Horizon",      "14 days"],
-            ["Refresh",      "Hourly via EventBridge"],
-            ["History",      "2 days · 15-min scrapes"],
-          ].map(([l, v], i) => (
-            <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderTop: i ? `1px solid ${BL.hair}` : "none" }}>
-              <span style={{ fontFamily: BL.sans, fontSize: 12, color: BL.muted }}>{l}</span>
-              <span style={{ fontFamily: BL.mono, fontSize: 11, color: BL.ink, fontWeight: 600, textAlign: "right", maxWidth: 140 }}>{v}</span>
-            </div>
-          ))}
-        </W>
-
-        <Tag style={{ marginTop: 16, display: "block" }}>Blood Bank Capacity</Tag>
-        <W pad={12} style={{ marginTop: 6 }}>
-          {[
-            ["Bloodbank@HSA", 86, 120],
-            ["Bloodbank@Dhoby Ghaut", 54, 90],
-            ["Bloodbank@Woodlands", 42, 80],
-            ["Bloodbank@Westgate", 38, 70],
-          ].map(([b, used, cap], i) => (
-            <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0" }}>
-              <span style={{ flex: 1, fontFamily: BL.sans, fontSize: 11, color: BL.ink, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{b}</span>
-              <div style={{ width: 60, height: 6, background: BL.hair, borderRadius: 3, overflow: "hidden", flexShrink: 0 }}>
-                <div style={{ width: `${(used / cap) * 100}%`, height: "100%", background: BL.ink }} />
+        {/* Model confidence */}
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ fontFamily: BL.mono, fontSize: 10, letterSpacing: 0.6, textTransform: "uppercase", color: BL.faint, marginBottom: 10 }}>
+            Model confidence
+          </div>
+          <Card pad={14}>
+            {[
+              ["Method",   "Seasonality + mean-rev."],
+              ["Anchor",   "Live Red Cross SG"],
+              ["Horizon",  "14 days"],
+              ["Refresh",  "Hourly via EventBridge"],
+              ["History",  "2 days · 15-min scrapes"],
+            ].map(([l, v], i) => (
+              <div key={i} style={{
+                display: "flex", justifyContent: "space-between", alignItems: "center",
+                padding: "7px 0", borderTop: i ? `1px solid ${BL.fill}` : "none",
+              }}>
+                <span style={{ fontFamily: BL.sans, fontSize: 12, color: BL.muted }}>{l}</span>
+                <span style={{ fontFamily: BL.mono, fontSize: 11, color: BL.ink, fontWeight: 600, textAlign: "right", maxWidth: 130 }}>{v}</span>
               </div>
-              <span style={{ fontFamily: BL.mono, fontSize: 10, color: BL.muted, width: 40, textAlign: "right", flexShrink: 0 }}>{used}/{cap}</span>
-            </div>
-          ))}
-        </W>
+            ))}
+          </Card>
+        </div>
+
+        {/* Blood bank capacity */}
+        <div>
+          <div style={{ fontFamily: BL.mono, fontSize: 10, letterSpacing: 0.6, textTransform: "uppercase", color: BL.faint, marginBottom: 10 }}>
+            Blood bank capacity
+          </div>
+          <Card pad={14}>
+            {[
+              ["Bloodbank@HSA",          86, 120],
+              ["Bloodbank@Dhoby Ghaut",  54, 90],
+              ["Bloodbank@Woodlands",    42, 80],
+              ["Bloodbank@Westgate",     38, 70],
+            ].map(([b, used, cap], i) => (
+              <div key={i} style={{ padding: "6px 0", borderTop: i ? `1px solid ${BL.fill}` : "none" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 5 }}>
+                  <span style={{
+                    flex: 1, fontFamily: BL.sans, fontSize: 11, color: BL.ink,
+                    minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                  }}>
+                    {b.replace("Bloodbank@", "")}
+                  </span>
+                  <span style={{ fontFamily: BL.mono, fontSize: 10, color: BL.muted, marginLeft: 8, flexShrink: 0 }}>
+                    {used}/{cap}
+                  </span>
+                </div>
+                <div style={{ height: 5, background: BL.fill, borderRadius: 3, overflow: "hidden" }}>
+                  <div style={{
+                    width: `${(used / cap) * 100}%`, height: "100%",
+                    background: used / cap > 0.8 ? BL.need.urgent.fg : BL.ink,
+                    borderRadius: 3,
+                  }} />
+                </div>
+              </div>
+            ))}
+          </Card>
+        </div>
       </div>
+
     </div>
   );
 }
 
 const softBtn = {
-  height: 28, padding: "0 10px", background: BL.fill, border: `1px solid ${BL.hair}`,
-  borderRadius: 6, fontFamily: BL.sans, fontSize: 12, color: BL.ink, cursor: "pointer",
+  height: 30, padding: "0 12px", background: BL.card,
+  border: `1px solid ${BL.hair}`, borderRadius: 8,
+  fontFamily: BL.sans, fontSize: 12, color: BL.ink, cursor: "pointer",
+  boxShadow: "0 1px 4px rgba(0,0,0,0.04)",
 };
 const outlineBtn = {
-  height: 28, padding: "0 10px", background: "transparent", border: `1px solid ${BL.ink}`,
-  borderRadius: 6, fontFamily: BL.sans, fontSize: 12, color: BL.ink, cursor: "pointer",
+  height: 30, padding: "0 12px", background: "transparent",
+  border: `1px solid ${BL.rule}`, borderRadius: 8,
+  fontFamily: BL.sans, fontSize: 12, color: BL.ink, cursor: "pointer",
 };

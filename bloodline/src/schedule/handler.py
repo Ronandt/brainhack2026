@@ -17,6 +17,7 @@ drives_table = dynamodb.Table(os.environ["BLOOD_DRIVES_TABLE"])
 bookings_table = dynamodb.Table(os.environ["BOOKINGS_TABLE"])
 slots_table = dynamodb.Table(os.environ["DONATION_SLOTS_TABLE"])
 slot_bookings_table = dynamodb.Table(os.environ["SLOT_BOOKINGS_TABLE"])
+notifs_table = dynamodb.Table(os.environ.get("NOTIFICATIONS_TABLE", f"bloodline-notifications-{os.environ.get('STAGE', 'dev')}"))
 
 
 def _response(status_code: int, body: dict) -> dict:
@@ -55,10 +56,19 @@ def lambda_handler(event: dict, context: LambdaContext) -> dict:
         return _list_hospital_drives(event)
     if "/bookings" in path and method == "GET":
         return _list_my_bookings(event)
+    if "/my-drives" in path and method == "GET":
+        return _list_my_drives(event)
     if "/drives" in path and method == "GET":
         return _list_drives(event)
     if "/drives" in path and method == "POST":
         return _create_drive(event)
+
+    # Donor notifications
+    if "/donor/notifications" in path and method == "POST":
+        notif_id = path.split("/donor/notifications/")[1].split("/read")[0]
+        return _mark_notification_read(event, notif_id)
+    if "/donor/notifications" in path and method == "GET":
+        return _list_notifications(event)
 
     # Legacy donor bookings for drives
     if "/book" in path and method == "POST":
@@ -281,7 +291,7 @@ def _create_drive(event: dict) -> dict:
         drive["lat"] = Decimal(str(lat))
         drive["lng"] = Decimal(str(lng))
     drives_table.put_item(Item=drive)
-    logger.info("Blood drive created", drive_id=drive_id, name=name)
+    logger.info("Blood drive created", drive_id=drive_id, drive_name=name)
     return _response(201, drive)
 
 
@@ -359,3 +369,38 @@ def _create_booking(event: dict) -> dict:
         "status": "confirmed",
         "bringAFriend": True,
     })
+
+
+def _list_my_drives(event: dict) -> dict:
+    """Return all drives submitted by the current donor, any status."""
+    donor_id = _donor_id_from_event(event)
+    result = drives_table.scan(FilterExpression=Attr("createdBy").eq(donor_id))
+    drives = result.get("Items", [])
+    for d in drives:
+        for k in ("capacity", "booked", "availableSlots"):
+            if k in d:
+                d[k] = int(d[k])
+    drives.sort(key=lambda d: d.get("createdAt", ""), reverse=True)
+    return _response(200, {"drives": drives})
+
+
+def _list_notifications(event: dict) -> dict:
+    """Return all notifications for the current donor, newest first."""
+    donor_id = _donor_id_from_event(event)
+    result = notifs_table.query(
+        KeyConditionExpression=Key("donorId").eq(donor_id),
+        ScanIndexForward=False,
+    )
+    notifs = result.get("Items", [])
+    return _response(200, {"notifications": notifs})
+
+
+def _mark_notification_read(event: dict, notif_id: str) -> dict:
+    donor_id = _donor_id_from_event(event)
+    notifs_table.update_item(
+        Key={"donorId": donor_id, "notifId": notif_id},
+        UpdateExpression="SET #r = :r",
+        ExpressionAttributeNames={"#r": "read"},
+        ExpressionAttributeValues={":r": True},
+    )
+    return _response(200, {"notifId": notif_id, "read": True})

@@ -37,9 +37,9 @@ function Tag({ children, color, bg }) {
   );
 }
 
-function W({ children, style, pad = 14 }) {
+function Card({ children, style, pad = 14 }) {
   return (
-    <div style={{ background: BL.card, border: `1px solid ${BL.hair}`, borderRadius: 6, padding: pad, ...style }}>
+    <div style={{ background: BL.card, boxShadow: "0 1px 10px rgba(0,0,0,0.06), 0 0 0 1px rgba(0,0,0,0.04)", borderRadius: 14, padding: pad, ...style }}>
       {children}
     </div>
   );
@@ -88,7 +88,7 @@ export default function DonorsPanel() {
             {segsForKpi.map(seg => {
               const need = SEG_NEED[seg];
               return (
-                <W key={seg} pad={14}>
+                <Card key={seg} pad={14}>
                   <Tag color={BL.need[need].fg} bg={BL.need[need].bg}>{SEG_LABEL[seg]}</Tag>
                   <div style={{ fontFamily: BL.mono, fontSize: 24, fontWeight: 600, color: BL.ink, marginTop: 6, letterSpacing: -0.6 }}>
                     {(summary[seg] ?? 0).toLocaleString()}
@@ -96,15 +96,15 @@ export default function DonorsPanel() {
                   <div style={{ fontFamily: BL.sans, fontSize: 11, color: BL.muted, marginTop: 2 }}>
                     {SEG_DESC[seg]}
                   </div>
-                </W>
+                </Card>
               );
             })}
           </div>
 
           <div style={{ display: "grid", gridTemplateColumns: "1.3fr 1fr", gap: 14, marginBottom: 14 }}>
             {/* Segment table */}
-            <W pad={0}>
-              <div style={{ padding: "12px 16px", borderBottom: `1px solid ${BL.hair}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <Card pad={0}>
+              <div style={{ padding: "12px 16px", borderBottom: `1px solid ${BL.fill}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <div style={{ fontFamily: BL.sans, fontSize: 14, fontWeight: 600, color: BL.ink }}>Segment · donor list</div>
                 <div style={{ display: "flex", gap: 6 }}>
                   {Object.entries(SEG_LABEL).map(([seg, label]) => {
@@ -117,7 +117,7 @@ export default function DonorsPanel() {
                         key={seg}
                         onClick={() => setActiveSegment(seg)}
                         style={{
-                          padding: "4px 10px", borderRadius: 3, fontSize: 11, fontFamily: BL.mono,
+                          padding: "4px 10px", borderRadius: 6, fontSize: 11, fontFamily: BL.mono,
                           cursor: "pointer", letterSpacing: 0.4, textTransform: "uppercase",
                           border: active ? `1px solid ${fg}` : `1px solid ${BL.hair}`,
                           background: active ? bg : "none",
@@ -135,7 +135,7 @@ export default function DonorsPanel() {
               ) : (
                 <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: BL.sans, fontSize: 12 }}>
                   <thead>
-                    <tr style={{ borderBottom: `1px solid ${BL.hair}` }}>
+                    <tr style={{ borderBottom: `1px solid ${BL.fill}` }}>
                       {["DONOR", "BLOOD TYPE", "LAST DONATED", "EMAIL"].map(h => (
                         <th key={h} style={{ textAlign: "left", padding: "8px 16px", fontFamily: BL.mono, fontSize: 9, color: BL.muted, fontWeight: 500, letterSpacing: 0.4 }}>{h}</th>
                       ))}
@@ -143,7 +143,7 @@ export default function DonorsPanel() {
                   </thead>
                   <tbody>
                     {donors.map(d => (
-                      <tr key={d.donorId} style={{ borderBottom: `1px solid ${BL.hair}` }}>
+                      <tr key={d.donorId} style={{ borderBottom: `1px solid ${BL.fill}` }}>
                         <td style={{ padding: "10px 16px", color: BL.ink }}>{d.name || "—"}</td>
                         <td style={{ padding: "10px 16px" }}>
                           <span style={{ background: BL.fill, borderRadius: 3, padding: "2px 7px", fontFamily: BL.mono, fontSize: 11, color: BL.ink }}>{d.bloodType}</span>
@@ -159,38 +159,38 @@ export default function DonorsPanel() {
                   </tbody>
                 </table>
               )}
-            </W>
+            </Card>
 
             {/* Blood type mix */}
-            <W pad={16}>
+            <Card pad={16}>
               <div style={{ fontFamily: BL.sans, fontSize: 14, fontWeight: 600, color: BL.ink, marginBottom: 12 }}>Mix by blood type</div>
               {BLOOD_TYPES_MIX.map(({ t, pct }) => (
                 <div key={t} style={{ display: "flex", alignItems: "center", gap: 10, padding: "4px 0" }}>
                   <span style={{
-                    width: 34, height: 34, borderRadius: 6, flexShrink: 0,
-                    background: BL.fill, border: `1px solid ${BL.hair}`,
+                    width: 34, height: 34, borderRadius: 8, flexShrink: 0,
+                    background: BL.fill, boxShadow: "0 0 0 1px rgba(0,0,0,0.07)",
                     display: "flex", alignItems: "center", justifyContent: "center",
                     fontFamily: BL.mono, fontSize: 11, fontWeight: 600, color: BL.ink,
                   }}>{t}</span>
-                  <div style={{ flex: 1, height: 8, background: BL.hair, borderRadius: 3, overflow: "hidden" }}>
+                  <div style={{ flex: 1, height: 8, background: BL.fill, borderRadius: 3, overflow: "hidden" }}>
                     <div style={{ width: `${pct * 2}%`, height: "100%", background: BL.ink }} />
                   </div>
                   <span style={{ fontFamily: BL.mono, fontSize: 11, color: BL.muted, width: 30, textAlign: "right" }}>{pct}%</span>
                 </div>
               ))}
               <Tag style={{ marginTop: 12, display: "block" }}>vs national pop. · O− is 4.2% low</Tag>
-            </W>
+            </Card>
           </div>
 
           {/* Campaigns table */}
-          <W pad={0}>
-            <div style={{ padding: "12px 16px", borderBottom: `1px solid ${BL.hair}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <Card pad={0}>
+            <div style={{ padding: "12px 16px", borderBottom: `1px solid ${BL.fill}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <div style={{ fontFamily: BL.sans, fontSize: 14, fontWeight: 600, color: BL.ink }}>Retention campaigns · scheduled</div>
               <button style={outlineBtn}>+ New campaign</button>
             </div>
             <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: BL.sans, fontSize: 12 }}>
               <thead>
-                <tr style={{ borderBottom: `1px solid ${BL.hair}` }}>
+                <tr style={{ borderBottom: `1px solid ${BL.fill}` }}>
                   {["CAMPAIGN", "SEGMENT", "SIZE", "CHANNEL", "SEND", "STATUS", "EXPECTED LIFT"].map(h => (
                     <th key={h} style={{ padding: "8px 16px", fontFamily: BL.mono, fontSize: 9, color: BL.muted, textAlign: "left", fontWeight: 500, letterSpacing: 0.4 }}>{h}</th>
                   ))}
@@ -203,7 +203,7 @@ export default function DonorsPanel() {
                   ["NSF re-enrolment",        "Lapsed · age 21–24",   "6,180", "Push",        "Thu 22 May 14:00", "Draft",            "+3.8pp M6"],
                   ["Workplace re-light",      "Drive captains",         "180", "WhatsApp",    "Fri 23 May 09:00", "Pending approval", "+18 drives"],
                 ].map((row, i) => (
-                  <tr key={i} style={{ borderBottom: `1px solid ${BL.hair}` }}>
+                  <tr key={i} style={{ borderBottom: `1px solid ${BL.fill}` }}>
                     {row.map((cell, j) => (
                       <td key={j} style={{ padding: "10px 16px", color: j === 0 ? BL.ink : BL.muted, fontFamily: j === 2 || j === 6 ? BL.mono : BL.sans }}>
                         {cell}
@@ -213,7 +213,7 @@ export default function DonorsPanel() {
                 ))}
               </tbody>
             </table>
-          </W>
+          </Card>
         </>
       )}
     </div>
@@ -221,10 +221,11 @@ export default function DonorsPanel() {
 }
 
 const softBtn = {
-  height: 28, padding: "0 10px", background: BL.fill, border: `1px solid ${BL.hair}`,
-  borderRadius: 6, fontFamily: BL.sans, fontSize: 12, color: BL.ink, cursor: "pointer",
+  height: 28, padding: "0 10px", background: BL.fill, border: "none",
+  borderRadius: 8, fontFamily: BL.sans, fontSize: 12, color: BL.ink, cursor: "pointer",
+  boxShadow: "0 0 0 1px rgba(0,0,0,0.08)",
 };
 const outlineBtn = {
   height: 28, padding: "0 10px", background: "transparent", border: `1px solid ${BL.ink}`,
-  borderRadius: 6, fontFamily: BL.sans, fontSize: 12, color: BL.ink, cursor: "pointer",
+  borderRadius: 8, fontFamily: BL.sans, fontSize: 12, color: BL.ink, cursor: "pointer",
 };

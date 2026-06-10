@@ -19,6 +19,7 @@ Globals:
         DONATION_SLOTS_TABLE: !Ref DonationSlotsTable
         SLOT_BOOKINGS_TABLE: !Ref SlotBookingsTable
         HOSPITALS_TABLE: !Ref HospitalsTable
+        NOTIFICATIONS_TABLE: !Ref NotificationsTable
         PREDICTIONS_BUCKET: !Ref PredictionsCacheBucket
         SURGE_ALERT_TOPIC: !Ref SurgeAlertTopic
         POWERTOOLS_SERVICE_NAME: bloodline
@@ -154,12 +155,10 @@ Resources:
       UserPoolId: !Ref DonorUserPool
       Description: HSA staff with admin-level access
 
-  RedCrossSGGroup:
-    Type: AWS::Cognito::UserPoolGroup
-    Properties:
-      GroupName: RedCrossSG
-      UserPoolId: !Ref DonorUserPool
-      Description: Singapore Red Cross staff with final drive approval access
+# RedCrossSGGroup intentionally omitted — group exists in Cognito but was
+# created manually and is not CloudFormation-managed. Removing it from the
+# template prevents the ResourceExistenceCheck Early Validation hook from
+# blocking deploys.
 
 # ---------------------------------------------------------------------------
 # FRONTEND — S3 + CLOUDFRONT
@@ -380,6 +379,25 @@ Resources:
         - AttributeName: slotId
           KeyType: RANGE
 
+  NotificationsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub bloodline-notifications-${Stage}
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: donorId
+          AttributeType: S
+        - AttributeName: notifId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: donorId
+          KeyType: HASH
+        - AttributeName: notifId
+          KeyType: RANGE
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+
 # ---------------------------------------------------------------------------
 # SNS
 # ---------------------------------------------------------------------------
@@ -554,6 +572,8 @@ Resources:
             TableName: !Ref DonationSlotsTable
         - DynamoDBCrudPolicy:
             TableName: !Ref SlotBookingsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref NotificationsTable
       Events:
         ListMyBookings:
           Type: Api
@@ -602,6 +622,24 @@ Resources:
           Properties:
             RestApiId: !Ref BloodlineApi
             Path: /api/v1/schedule/book
+            Method: POST
+        ListMyDrives:
+          Type: Api
+          Properties:
+            RestApiId: !Ref BloodlineApi
+            Path: /api/v1/schedule/my-drives
+            Method: GET
+        GetDonorNotifications:
+          Type: Api
+          Properties:
+            RestApiId: !Ref BloodlineApi
+            Path: /api/v1/donor/notifications
+            Method: GET
+        MarkNotificationRead:
+          Type: Api
+          Properties:
+            RestApiId: !Ref BloodlineApi
+            Path: /api/v1/donor/notifications/{notifId}/read
             Method: POST
 
   RetainFunction:
@@ -672,6 +710,8 @@ Resources:
             TableName: !Sub bloodline-blood-stock-${Stage}
         - DynamoDBCrudPolicy:
             TableName: !Ref PredictionsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref NotificationsTable
       Events:
         GetDonorSegments:
           Type: Api
@@ -750,6 +790,12 @@ Resources:
           Properties:
             RestApiId: !Ref BloodlineApi
             Path: /api/v1/admin/donations
+            Method: POST
+        NotifyDonorOfRejection:
+          Type: Api
+          Properties:
+            RestApiId: !Ref BloodlineApi
+            Path: /api/v1/admin/drives/{driveId}/notify-donor
             Method: POST
 
   HospitalFunction:
