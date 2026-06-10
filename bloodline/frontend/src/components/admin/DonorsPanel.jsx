@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { getDonorSegments } from "../../api";
 import { BL } from "../../tokens";
+import { GenericPanelSkeleton } from "../Skeleton";
 
 const SEG_NEED  = { active: "ok", dormant: "low", atRisk: "urgent", lapsed: "critical" };
 const SEG_LABEL = {
@@ -78,7 +79,7 @@ export default function DonorsPanel() {
         </div>
       </div>
 
-      {loading && <div style={{ fontFamily: BL.sans, color: BL.muted, fontSize: 13 }}>Loading…</div>}
+      {loading && <GenericPanelSkeleton rows={4} />}
 
       {data && (
         <>

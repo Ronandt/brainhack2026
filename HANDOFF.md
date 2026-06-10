@@ -1,6 +1,6 @@
 # BloodLine — Project Handoff
 
-> **Last updated:** 2026-06-08
+> **Last updated:** 2026-06-10
 > **Updated by:** Claude (Sonnet 4.6) — auto-updated on every code change
 
 ---
@@ -54,6 +54,7 @@ brainhack2026/
 │   │       ├── config.js               # API_URL, Cognito pool/client IDs
 │   │       └── components/
 │   │           ├── Dashboard.jsx       # Role detection + all layout shells
+│   │           ├── Skeleton.jsx        # Pulsing skeleton components for all panels (all roles)
 │   │           ├── HomePanel.jsx       # Donor home + booking flow + surge banner + rally friends
 │   │           ├── ImpactPanel.jsx     # Donor impact / retain stats
 │   │           ├── DonorDrivesPanel.jsx# "Book" tab — consolidated drives+slots, Squad RSVP
@@ -130,6 +131,17 @@ brainhack2026/
 - Editable name / blood type / postal code (calls `PUT /donors/me`)
 - Streak visual, donation stats grid
 - Sign-out button (mobile only)
+
+**Skeleton loading screens** (`Skeleton.jsx`):
+- All loading states replaced with layout-matched pulsing skeletons (BL.fill ↔ BL.hair pulse, 1.6s)
+- `HomePanelSkeleton` — header + 3 timeline nodes with blood stock grid placeholder
+- `DriveCardsSkeleton` — 3 drive/slot card skeletons (Book tab inline replacement)
+- `ImpactSkeleton` — stats row, milestone badge circles, annual bar chart
+- `DonorProfileSkeleton` — avatar, stats grid, form fields, notification rows
+- `OverviewPanelSkeleton` — KPI cards (4), stock grid (8), SVG chart area, heatmap (8×14), right rail
+- `MySlotsSkeletonPanel` — stats row + 3 slot cards (hospital)
+- `GenericPanelSkeleton` — fallback used by DonorsPanel and DrivesPanel (admin)
+- Animation injected via a single `<style>` tag at module load (no CSS files added)
 
 **Auth** (`Auth.jsx`):
 - **Desktop**: dark left branding panel (tagline, feature bullets, blood type grid) + light right form panel
