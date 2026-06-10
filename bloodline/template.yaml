@@ -750,6 +750,12 @@ Resources:
             RestApiId: !Ref BloodlineApi
             Path: /api/v1/redcross/drives/pending
             Method: GET
+        GetRedCrossApprovedDrives:
+          Type: Api
+          Properties:
+            RestApiId: !Ref BloodlineApi
+            Path: /api/v1/redcross/drives/approved
+            Method: GET
         ApproveRedCrossDrive:
           Type: Api
           Properties:

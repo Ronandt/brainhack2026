@@ -595,25 +595,9 @@ function HostDriveBubble() {
     };
     setSelectedLocation(next);
     setMapCenter(next);
-
-    if (!place.needsReverseGeocode) return;
-
-    try {
-      const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lng)}&zoom=18&addressdetails=1`);
-      if (!res.ok) throw new Error("Reverse geocode failed");
-      const data = await res.json();
-      setSelectedLocation(prev => (
-        prev && prev.lat === lat && prev.lng === lng
-          ? { ...prev, label: streetLabel(data, fallback) }
-          : prev
-      ));
-    } catch {
-      setSelectedLocation(prev => (
-        prev && prev.lat === lat && prev.lng === lng
-          ? { ...prev, label: fallback }
-          : prev
-      ));
-    }
+    // No client-side reverse geocoding: OneMap's reverse endpoint needs an auth
+    // token and Nominatim blocks browser origins (CORS). Tapped points keep a
+    // coordinate label; use the search box to attach a named location.
   }
 
   function useCurrentLocation() {
@@ -640,12 +624,22 @@ function HostDriveBubble() {
     setLocationLoading(true);
     setLocationStatus("");
     try {
-      const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=5&countrycodes=sg&q=${encodeURIComponent(q)}`);
+      // OneMap (Singapore gov) — CORS-friendly, no auth needed for search, unlike
+      // Nominatim which blocks browser origins and rate-limits (429).
+      const res = await fetch(`https://www.onemap.gov.sg/api/common/elastic/search?searchVal=${encodeURIComponent(q)}&returnGeom=Y&getAddrDetails=Y&pageNum=1`);
       if (!res.ok) throw new Error("Search failed");
       const data = await res.json();
-      setLocationResults(data);
-      if (data[0]) selectLocation(data[0]);
-      if (!data.length) setLocationStatus("No locations found. Try a nearby landmark or address.");
+      const results = (data.results ?? []).slice(0, 5).map((r, i) => ({
+        place_id: `${r.LATITUDE},${r.LONGITUDE}-${i}`,
+        display_name: r.ADDRESS || r.SEARCHVAL,
+        label: r.SEARCHVAL || r.ADDRESS,
+        lat: Number(r.LATITUDE),
+        lng: Number(r.LONGITUDE),
+        lon: Number(r.LONGITUDE),
+      }));
+      setLocationResults(results);
+      if (results[0]) selectLocation(results[0]);
+      if (!results.length) setLocationStatus("No locations found. Try a nearby landmark or address.");
     } catch {
       setLocationStatus("Location search is unavailable right now.");
     } finally {

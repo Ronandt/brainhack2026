@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { approveRedCrossDrive, getRedCrossPendingDrives, rejectRedCrossDrive } from "../../api";
+import { approveRedCrossDrive, getRedCrossPendingDrives, getRedCrossApprovedDrives, rejectRedCrossDrive } from "../../api";
 import { BL } from "../../tokens";
 
 function Tag({ children, color, bg }) {
@@ -24,14 +24,17 @@ function Card({ children }) {
 
 export default function DriveApprovalsPanel() {
   const [drives, setDrives] = useState([]);
+  const [approved, setApproved] = useState([]);
   const [loading, setLoading] = useState(true);
   const [actionState, setActionState] = useState({});
   const [reasons, setReasons] = useState({});
 
   useEffect(() => {
-    getRedCrossPendingDrives()
-      .then(d => setDrives(d.drives ?? []))
-      .catch(() => {})
+    Promise.allSettled([getRedCrossPendingDrives(), getRedCrossApprovedDrives()])
+      .then(([p, a]) => {
+        if (p.status === "fulfilled") setDrives(p.value.drives ?? []);
+        if (a.status === "fulfilled") setApproved(a.value.drives ?? []);
+      })
       .finally(() => setLoading(false));
   }, []);
 
@@ -39,7 +42,10 @@ export default function DriveApprovalsPanel() {
     setActionState(prev => ({ ...prev, [driveId]: { loading: true } }));
     try {
       await approveRedCrossDrive(driveId);
+      // Move it out of the pending queue and into the live list
+      const drive = drives.find(d => d.driveId === driveId);
       setDrives(prev => prev.filter(d => d.driveId !== driveId));
+      if (drive) setApproved(prev => [{ ...drive, status: "upcoming" }, ...prev]);
       setActionState(prev => ({ ...prev, [driveId]: { done: "approved" } }));
     } catch (e) {
       setActionState(prev => ({ ...prev, [driveId]: { error: e.message } }));
@@ -148,6 +154,38 @@ export default function DriveApprovalsPanel() {
             </Card>
           );
         })}
+      </div>
+
+      {/* Approved / live drives — confirmation that approved drives are live */}
+      <div style={{ marginTop: 28 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+          <div style={{ fontFamily: BL.sans, fontSize: 16, fontWeight: 600, color: BL.ink }}>Live drives</div>
+          <Tag color={BL.need.ok.fg} bg={BL.need.ok.bg}>{approved.length} approved</Tag>
+        </div>
+        {approved.length === 0 ? (
+          <div style={{ fontFamily: BL.sans, color: BL.faint, fontSize: 13 }}>No approved drives yet.</div>
+        ) : (
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            {approved.map(drive => (
+              <Card key={drive.driveId}>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start" }}>
+                  <div>
+                    <div style={{ fontFamily: BL.sans, fontSize: 15, color: BL.ink, fontWeight: 600 }}>
+                      {drive.name ?? "Unnamed Drive"}
+                    </div>
+                    <div style={{ fontFamily: BL.sans, fontSize: 12, color: BL.muted, marginTop: 2 }}>
+                      {drive.location}
+                    </div>
+                    <div style={{ fontFamily: BL.mono, fontSize: 11, color: BL.ink, marginTop: 6 }}>
+                      {drive.date}{drive.startTime ? ` · ${drive.startTime}` : ""} · {drive.booked ?? 0}/{drive.capacity ?? "?"} booked
+                    </div>
+                  </div>
+                  <Tag color={BL.need.ok.fg} bg={BL.need.ok.bg}>Live</Tag>
+                </div>
+              </Card>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

@@ -95,6 +95,7 @@ export const rejectDrive = (driveId) => request(`/api/v1/admin/drives/${driveId}
 export const notifyDonorOfRejection = (driveId) =>
   request(`/api/v1/admin/drives/${driveId}/notify-donor`, { method: "POST" });
 export const getRedCrossPendingDrives = () => request("/api/v1/redcross/drives/pending");
+export const getRedCrossApprovedDrives = () => request("/api/v1/redcross/drives/approved");
 export const approveRedCrossDrive = (driveId) => request(`/api/v1/redcross/drives/${driveId}/approve`, { method: "POST" });
 export const rejectRedCrossDrive = (driveId, reason) =>
   request(`/api/v1/redcross/drives/${driveId}/reject`, { method: "POST", body: JSON.stringify({ reason }) });

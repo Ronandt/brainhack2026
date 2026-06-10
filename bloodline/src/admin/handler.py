@@ -81,6 +81,10 @@ def _dispatch(event: dict) -> dict:
         return _record_donation(event)
 
     # Red Cross final approval routes
+    if "/redcross/drives/approved" in path and method == "GET":
+        if not _is_redcross(event):
+            return _response(403, {"error": "Red Cross access required"})
+        return _redcross_approved_drives()
     if "/redcross/drives/pending" in path and method == "GET":
         if not _is_redcross(event):
             return _response(403, {"error": "Red Cross access required"})
@@ -243,6 +247,20 @@ def _redcross_pending_drives():
         for k in ("capacity", "booked"):
             if k in d:
                 d[k] = int(d[k])
+    return _response(200, {"drives": drives, "count": len(drives)})
+
+
+def _redcross_approved_drives():
+    """Drives the Red Cross has approved and that are now live (status upcoming)."""
+    result = drives_table.scan(
+        FilterExpression=Attr("status").eq("upcoming") & Attr("redCrossApprovedBy").exists()
+    )
+    drives = result.get("Items", [])
+    for d in drives:
+        for k in ("capacity", "booked"):
+            if k in d:
+                d[k] = int(d[k])
+    drives.sort(key=lambda d: d.get("redCrossApprovedAt", ""), reverse=True)
     return _response(200, {"drives": drives, "count": len(drives)})
 
 
