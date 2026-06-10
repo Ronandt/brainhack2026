@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { getBloodStock, getStatus, getAllAlerts, getForecast, getTrafficIncidents } from "../../api";
 import { BL } from "../../tokens";
+import { OverviewPanelSkeleton } from "../Skeleton";
 
 function statusToNeed(s) {
   return ({ Healthy: "ok", Moderate: "low", Low: "urgent", Critical: "critical" })[s] ?? "ok";
@@ -333,15 +334,15 @@ export default function OverviewPanel() {
   const [hovered, setHovered]               = useState(null);
   const [incidents, setIncidents]           = useState([]);
   const [incidentsUpdatedAt, setIncidentsUpdatedAt] = useState("");
+  const [loading, setLoading]               = useState(true);
 
   useEffect(() => {
-    getBloodStock().then(d => {
-      setBloodStock(d.bloodStock ?? []);
-      setStockUpdatedAt(d.updatedAt ?? "");
-    }).catch(() => {});
-    getStatus().then(setStatus).catch(() => {});
-    getAllAlerts().then(d => setAlerts(d.alerts ?? [])).catch(() => {});
-    getForecast().then(d => setForecast(d.forecast ?? {})).catch(() => {});
+    Promise.allSettled([
+      getBloodStock().then(d => { setBloodStock(d.bloodStock ?? []); setStockUpdatedAt(d.updatedAt ?? ""); }),
+      getStatus().then(setStatus),
+      getAllAlerts().then(d => setAlerts(d.alerts ?? [])),
+      getForecast().then(d => setForecast(d.forecast ?? {})),
+    ]).finally(() => setLoading(false));
   }, []);
 
   // Live LTA traffic incidents — poll every 60s so the ops feed stays current.
@@ -366,6 +367,8 @@ export default function OverviewPanel() {
   }).length || null;
 
   const hasForecast = Object.keys(forecast).length > 0;
+
+  if (loading) return <OverviewPanelSkeleton />;
 
   return (
     <div style={{ display: "flex", gap: 0, margin: "-20px -24px", height: "calc(100vh - 48px)", overflow: "hidden" }}>

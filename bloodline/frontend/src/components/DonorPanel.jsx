@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { getDonor, updateDonor, getRetainStats } from "../api";
 import { BL } from "../tokens";
+import { DonorProfileSkeleton } from "./Skeleton";
 
 const BLOOD_TYPES = ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"];
 
@@ -61,14 +62,14 @@ export default function DonorPanel({ onLogout }) {
     getDonor()
       .then(d => {
         setDonor(d);
-        setForm({ name: d.name ?? "", postalCode: d.postalCode ?? "" });
+        setForm({ name: d.name ?? "", postalCode: d.postalCode ?? "", gender: d.gender ?? "" });
       })
       .catch(e => {
         if (e.message?.includes("not found") || e.message?.includes("404")) {
           // No DynamoDB record yet — show the initial setup form
           setIsNew(true);
           setEditing(true);
-          setForm({ name: "", bloodType: "O+", postalCode: "" });
+          setForm({ name: "", bloodType: "O+", postalCode: "", gender: "" });
         } else {
           setError(e.message);
         }
@@ -83,6 +84,7 @@ export default function DonorPanel({ onLogout }) {
     setSaving(true); setSaveResult(""); setSaveError("");
     try {
       const payload = { name: form.name, postalCode: form.postalCode };
+      if (form.gender) payload.gender = form.gender;
       // Blood type only sent on initial setup (immutable after first save)
       if (isNew && form.bloodType) payload.bloodType = form.bloodType;
 
@@ -101,12 +103,7 @@ export default function DonorPanel({ onLogout }) {
     }
   }
 
-  if (loading) return (
-    <div style={{ padding: "8px 0" }}>
-      <div style={{ fontFamily: BL.sans, fontSize: 22, fontWeight: 600, color: BL.ink, letterSpacing: -0.4, marginBottom: 16 }}>You</div>
-      <div style={{ fontFamily: BL.sans, color: BL.muted, fontSize: 13 }}>Loading profile…</div>
-    </div>
-  );
+  if (loading) return <DonorProfileSkeleton />;
 
   if (error) return (
     <div style={{ fontFamily: BL.sans, color: BL.need.critical.fg, fontSize: 13, padding: "8px 0" }}>{error}</div>
@@ -298,6 +295,38 @@ export default function DonorPanel({ onLogout }) {
               />
             </div>
 
+            {/* Gender */}
+            <div style={{ marginBottom: 14 }}>
+              <label style={labelStyle}>Gender</label>
+              <div style={{ display: "flex", gap: 8 }}>
+                {["male", "female"].map(g => {
+                  const sel = form.gender === g;
+                  return (
+                    <button
+                      key={g}
+                      type="button"
+                      onClick={() => setForm(f => ({ ...f, gender: g }))}
+                      style={{
+                        padding: "8px 20px", borderRadius: 6, cursor: "pointer",
+                        fontFamily: BL.sans, fontSize: 13, fontWeight: sel ? 600 : 400,
+                        background: sel ? BL.ink : BL.fill,
+                        color: sel ? "#fff" : BL.muted,
+                        border: `1px solid ${sel ? BL.ink : BL.hair}`,
+                        textTransform: "capitalize",
+                      }}
+                    >
+                      {g}
+                    </button>
+                  );
+                })}
+              </div>
+              {form.gender && (
+                <div style={{ fontFamily: BL.sans, fontSize: 11, color: BL.muted, marginTop: 6 }}>
+                  Donation interval: every 3 months (84 days) for all donors
+                </div>
+              )}
+            </div>
+
             {/* Blood type — read-only in edit mode */}
             <div style={{ marginBottom: 14 }}>
               <label style={labelStyle}>Blood type</label>
@@ -360,8 +389,10 @@ export default function DonorPanel({ onLogout }) {
           <div style={{ display: "flex", gap: 0, flexDirection: "column" }}>
             {[
               { l: "Name",        v: donor?.name ?? "—" },
+              { l: "Gender",      v: donor?.gender ? (donor.gender.charAt(0).toUpperCase() + donor.gender.slice(1)) : "—" },
               { l: "Blood type",  v: bt ?? "—",  note: "immutable" },
               { l: "Postal code", v: donor?.postalCode ?? "—" },
+              { l: "Donation interval", v: "Every 84 days", note: "~3 months" },
             ].map(({ l, v, note }, i) => (
               <div key={l} style={{
                 display: "flex", justifyContent: "space-between", alignItems: "center",

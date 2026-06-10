@@ -35,6 +35,8 @@ export const updateDonor = (body) =>
 export const activateSurge = (body) =>
   request("/api/v1/surge/activate", { method: "POST", body: JSON.stringify(body) });
 export const getSurgeMonitor = () => request("/api/v1/surge/monitor");
+export const getSurgeReach = (geoTier, bloodTypes) =>
+  request(`/api/v1/surge/reach?geoTier=${encodeURIComponent(geoTier)}&bloodTypes=${encodeURIComponent((bloodTypes ?? []).join(","))}`);
 export const endSurge = (alertId) =>
   request(`/api/v1/surge/${alertId}/end`, { method: "POST" });
 

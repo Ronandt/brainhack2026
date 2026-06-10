@@ -1,7 +1,13 @@
+import base64
 import html
 import json
+import math
 import os
-from datetime import datetime
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+from datetime import datetime, timedelta, timezone
 
 import boto3
 from aws_lambda_powertools import Logger
@@ -15,7 +21,14 @@ ses = boto3.client("ses", config=Config(connect_timeout=5, read_timeout=10, retr
 sns = boto3.client("sns", config=Config(connect_timeout=5, read_timeout=10, retries={"max_attempts": 2}))
 donors_table = dynamodb.Table(os.environ["DONORS_TABLE"])
 alerts_table = dynamodb.Table(os.environ["ALERTS_TABLE"])
+hospitals_table = dynamodb.Table(os.environ.get("HOSPITALS_TABLE", "bloodline-hospitals-dev"))
 SENDER_EMAIL = os.environ.get("SENDER_EMAIL", "")
+
+# VAPID (Web Push). Bodyless pushes — the service worker renders the text, so we
+# only need to sign the VAPID JWT (ES256) and POST to each subscription endpoint.
+VAPID_PRIVATE_KEY = os.environ.get("VAPID_PRIVATE_KEY", "")
+VAPID_PUBLIC_KEY = os.environ.get("VAPID_PUBLIC_KEY", "")
+VAPID_SUBJECT = os.environ.get("VAPID_SUBJECT", "mailto:bloodlineapps@gmail.com")
 # Public donor-app URL used as the email call-to-action target (blank → no link)
 APP_URL = os.environ.get("APP_URL", "")
 # SMS is a billable, outward-facing channel — opt-in via env flag (default off)
@@ -35,13 +48,56 @@ _RED_INK = "#7a1f1a"
 _SANS = "'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif"
 _MONO = "'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace"
 
-# Geo tier radius mapping (km) — used for filtering by postalCode prefix heuristic
-GEO_TIER_RADIUS = {"5km": 1, "15km": 2, "island-wide": None}
+# Surge tier radii in km. island-wide = no distance filter (everyone).
+TIER_RADIUS_KM = {"5km": 5.0, "15km": 15.0, "island-wide": None}
+# A live device fix older than this falls back to the donor's home location.
+LIVE_FIX_FRESHNESS_HOURS = 3
 
 
-def _postal_prefix_length(geo_tier: str) -> int | None:
-    """Simple postal code prefix heuristic for geo filtering (Singapore 6-digit codes)."""
-    return GEO_TIER_RADIUS.get(geo_tier)
+def _haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
+    """Great-circle distance between two lat/lng points, in km."""
+    r = 6371.0
+    d_phi = math.radians(lat2 - lat1)
+    d_lambda = math.radians(lng2 - lng1)
+    a = (math.sin(d_phi / 2) ** 2
+         + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(d_lambda / 2) ** 2)
+    return 2 * r * math.asin(math.sqrt(a))
+
+
+def _effective_location(donor: dict) -> tuple[float, float] | None:
+    """Freshest known donor location: a recent live fix, else home. None if unknown."""
+    live_seen = donor.get("liveSeenAt")
+    if live_seen and donor.get("liveLat") is not None and donor.get("liveLng") is not None:
+        try:
+            seen = datetime.fromisoformat(live_seen)
+            if seen.tzinfo is None:
+                seen = seen.replace(tzinfo=timezone.utc)
+            if datetime.now(timezone.utc) - seen <= timedelta(hours=LIVE_FIX_FRESHNESS_HOURS):
+                return float(donor["liveLat"]), float(donor["liveLng"])
+        except ValueError:
+            pass
+    if donor.get("homeLat") is not None and donor.get("homeLng") is not None:
+        return float(donor["homeLat"]), float(donor["homeLng"])
+    return None
+
+
+def _hospital_coords() -> list[tuple[float, float]]:
+    """Reference points for radius tiers: every hospital/blood bank with coordinates."""
+    items = hospitals_table.scan(ProjectionExpression="lat, lng").get("Items", [])
+    coords = []
+    for h in items:
+        if h.get("lat") is not None and h.get("lng") is not None:
+            coords.append((float(h["lat"]), float(h["lng"])))
+    return coords
+
+
+def _within_radius(donor: dict, banks: list[tuple[float, float]], radius_km: float) -> bool:
+    """True if the donor's effective location is within radius_km of any blood bank."""
+    loc = _effective_location(donor)
+    if loc is None:
+        return False  # unknown location → not matched for narrow tiers
+    dlat, dlng = loc
+    return any(_haversine_km(dlat, dlng, blat, blng) <= radius_km for blat, blng in banks)
 
 
 def _scan_all(filter_expr=None) -> list:
@@ -81,23 +137,29 @@ def _dispatch_notifications(message: dict) -> None:
 
     logger.info("Dispatching notifications", alert_id=alert_id, blood_types=blood_types, geo_tier=geo_tier)
 
-    # Match the donor-app banner: an island-wide surge reaches every donor,
-    # narrower tiers are scoped to the requested blood types. We don't exclude
-    # donors in their rest window (the app surfaces the surge to them too so they
-    # can rally others), and `eligible` is computed at read-time, never stored,
-    # so it can't be used as a scan filter.
-    if geo_tier == "island-wide":
-        donors = _scan_all()
-    else:
-        type_filter = None
-        for bt in blood_types:
-            cond = Attr("bloodType").eq(bt)
-            type_filter = cond if type_filter is None else (type_filter | cond)
-        donors = _scan_all(type_filter)
-    logger.info("Donors matched for surge", alert_id=alert_id, blood_types=blood_types, geo_tier=geo_tier, matched=len(donors))
+    # A surge always targets its blood type(s) — a donor is only alerted if their
+    # type matches. The tier only controls geography: island-wide = anywhere,
+    # narrower tiers add a radius filter below. (`eligible` is computed at
+    # read-time, never stored, so it can't be used as a scan filter.)
+    type_filter = None
+    for bt in blood_types:
+        cond = Attr("bloodType").eq(bt)
+        type_filter = cond if type_filter is None else (type_filter | cond)
+    donors = _scan_all(type_filter)
 
-    # TODO: add geo filtering by postal code when location data is populated
-    # For hackathon: island-wide always matches, narrower tiers use postal prefix heuristic
+    # Geo radius filter for narrow tiers: keep donors within N km of any blood bank
+    # (freshest of live device location or geocoded home). island-wide skips this.
+    radius_km = TIER_RADIUS_KM.get(geo_tier)
+    if radius_km is not None:
+        banks = _hospital_coords()
+        before = len(donors)
+        if banks:
+            donors = [d for d in donors if _within_radius(d, banks, radius_km)]
+        else:
+            logger.warning("No hospital coordinates available — radius filter skipped", alert_id=alert_id)
+        logger.info("Radius filter applied", alert_id=alert_id, radius_km=radius_km, banks=len(banks), before=before, after=len(donors))
+
+    logger.info("Donors matched for surge", alert_id=alert_id, blood_types=blood_types, geo_tier=geo_tier, matched=len(donors))
 
     # Every matched donor is moved into surge mode and sees the in-app alert
     # banner (the donor app polls /surge/monitor), so they all count as notified.
@@ -107,9 +169,8 @@ def _dispatch_notifications(message: dict) -> None:
     push_sent = 0
     sms_sent = 0
     for donor in donors:
-        push_token = donor.get("pushToken")
-        if push_token:
-            _send_push(push_token, blood_label, alert_message, alert_id)
+        sub = donor.get("pushSubscription")
+        if sub and _send_web_push(sub, alert_id):
             push_sent += 1
 
         email = donor.get("email")
@@ -151,6 +212,59 @@ def _send_push(push_token: str, blood_type: str, message: str, alert_id: str) ->
     # TODO: Replace with real push delivery:
     # sns_client.publish(TargetArn=push_token, Message=message, ...)
     # or: requests.post("https://exp.host/--/api/v2/push/send", ...)
+
+
+def _b64url(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
+
+
+def _b64url_decode(s: str) -> bytes:
+    return base64.urlsafe_b64decode(s + "=" * (-len(s) % 4))
+
+
+def _vapid_jwt(audience: str) -> str:
+    """Sign a VAPID JWT (ES256) with the private key, using pure-Python ecdsa."""
+    import hashlib
+
+    import ecdsa
+
+    header = _b64url(json.dumps({"typ": "JWT", "alg": "ES256"}).encode())
+    claims = _b64url(json.dumps({
+        "aud": audience,
+        "exp": int(time.time()) + 12 * 3600,
+        "sub": VAPID_SUBJECT,
+    }).encode())
+    signing_input = f"{header}.{claims}".encode()
+    sk = ecdsa.SigningKey.from_string(_b64url_decode(VAPID_PRIVATE_KEY), curve=ecdsa.NIST256p, hashfunc=hashlib.sha256)
+    sig = sk.sign_deterministic(signing_input, hashfunc=hashlib.sha256)  # raw r||s (64 bytes)
+    return f"{signing_input.decode()}.{_b64url(sig)}"
+
+
+def _send_web_push(subscription: dict, alert_id: str) -> bool:
+    """Send a bodyless Web Push to one subscription. Returns True on accept."""
+    if not (VAPID_PRIVATE_KEY and VAPID_PUBLIC_KEY):
+        logger.warning("VAPID keys not configured — skipping web push", alert_id=alert_id)
+        return False
+    endpoint = (subscription or {}).get("endpoint")
+    if not endpoint:
+        return False
+
+    parsed = urllib.parse.urlparse(endpoint)
+    audience = f"{parsed.scheme}://{parsed.netloc}"
+    try:
+        jwt = _vapid_jwt(audience)
+        req = urllib.request.Request(endpoint, data=b"", method="POST")
+        req.add_header("Authorization", f"vapid t={jwt}, k={VAPID_PUBLIC_KEY}")
+        req.add_header("TTL", "86400")
+        with urllib.request.urlopen(req, timeout=5) as resp:  # noqa: S310 (push service endpoint)
+            return resp.status in (200, 201, 202)
+    except urllib.error.HTTPError as e:
+        # 404/410 = subscription gone; caller may prune it later
+        logger.info("Web push rejected", alert_id=alert_id, code=e.code)
+        return False
+    except Exception:
+        logger.exception("Web push error", alert_id=alert_id)
+        return False
 
 
 def _badge_font_size(label: str) -> int:

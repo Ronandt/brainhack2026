@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { getPendingDrives, approveDrive, rejectDrive } from "../../api";
 import { BL } from "../../tokens";
+import { GenericPanelSkeleton } from "../Skeleton";
 
 function Tag({ children, color, bg }) {
   return (
@@ -55,6 +56,8 @@ export default function DrivesPanel() {
     }
   }
 
+  if (loading) return <GenericPanelSkeleton rows={4} />;
+
   return (
     <div>
       {/* Page header */}
@@ -73,7 +76,7 @@ export default function DrivesPanel() {
         </div>
       </div>
 
-      {!loading && drives.length === 0 && (
+      {drives.length === 0 && (
         <div style={{ fontFamily: BL.sans, color: BL.faint, fontSize: 13 }}>No drives pending approval.</div>
       )}
 

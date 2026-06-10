@@ -18,6 +18,7 @@ Globals:
         ALERTS_TABLE: !Ref AlertsTable
         DONATION_SLOTS_TABLE: !Ref DonationSlotsTable
         SLOT_BOOKINGS_TABLE: !Ref SlotBookingsTable
+        HOSPITALS_TABLE: !Ref HospitalsTable
         PREDICTIONS_BUCKET: !Ref PredictionsCacheBucket
         SURGE_ALERT_TOPIC: !Ref SurgeAlertTopic
         POWERTOOLS_SERVICE_NAME: bloodline
@@ -36,6 +37,19 @@ Parameters:
     Type: String
     Default: ""
     Description: Optional override for the surge-email call-to-action link (e.g. a custom domain). Leave blank to use the CloudFront PWA URL.
+  VapidPublicKey:
+    Type: String
+    Default: ""
+    Description: VAPID public key (base64url) for Web Push. Must match the key embedded in the frontend.
+  VapidPrivateKey:
+    Type: String
+    Default: ""
+    NoEcho: true
+    Description: VAPID private key (base64url) for signing Web Push JWTs.
+  VapidSubject:
+    Type: String
+    Default: "mailto:bloodlineapps@gmail.com"
+    Description: "VAPID 'sub' contact (mailto or https) sent to push services."
   EnableSms:
     Type: String
     Default: "false"
@@ -452,6 +466,8 @@ Resources:
             TableName: !Ref AlertsTable
         - DynamoDBReadPolicy:
             TableName: !Ref DonorsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref HospitalsTable
         - SNSPublishMessagePolicy:
             TopicName: !GetAtt SurgeAlertTopic.TopicName
       Events:
@@ -466,6 +482,12 @@ Resources:
           Properties:
             RestApiId: !Ref BloodlineApi
             Path: /api/v1/surge/monitor
+            Method: GET
+        ReachPreview:
+          Type: Api
+          Properties:
+            RestApiId: !Ref BloodlineApi
+            Path: /api/v1/surge/reach
             Method: GET
         EndSurge:
           Type: Api
@@ -487,10 +509,15 @@ Resources:
           # Defaults to the CloudFront PWA URL; AppUrl param overrides for a custom domain
           APP_URL: !If [HasCustomAppUrl, !Ref AppUrl, !Sub "https://${FrontendDistribution.DomainName}"]
           SMS_ENABLED: !Ref EnableSms
+          VAPID_PUBLIC_KEY: !Ref VapidPublicKey
+          VAPID_PRIVATE_KEY: !Ref VapidPrivateKey
+          VAPID_SUBJECT: !Ref VapidSubject
           SMS_SENDER_ID: !Ref SmsSenderId
       Policies:
         - DynamoDBReadPolicy:
             TableName: !Ref DonorsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref HospitalsTable
         - DynamoDBCrudPolicy:
             TableName: !Ref AlertsTable
         - Statement:
@@ -735,6 +762,7 @@ Resources:
       Environment:
         Variables:
           HOSPITALS_TABLE: !Ref HospitalsTable
+          DONATION_SLOTS_TABLE: !Ref DonationSlotsTable
           SLOT_BOOKINGS_TABLE: !Ref SlotBookingsTable
           DONORS_TABLE: !Ref DonorsTable
       Policies:
