@@ -3,7 +3,7 @@ import QRCode from "react-qr-code";
 import {
   getDonor, getStatus, getDrives,
   getSlots, bookSlot, cancelSlotBooking, getBloodStock,
-  getSurgeMonitor, getMyBookings, updateDonor, getForecast
+  getSurgeMonitor, getMyBookings, updateDonor, getForecast, respondSurge
 } from "../api";
 import { getToken } from "../auth";
 import { BL, riskToNeed } from "../tokens";
@@ -210,6 +210,9 @@ export default function HomePanel({ onNavigate }) {
   // Browser push: remember which alerts we've already surfaced this session so
   // the 30s poll doesn't fire a notification on every tick.
   const notifiedAlertIds = useRef(new Set());
+  // Surge funnel: count this donor as a "response" the first time they're actually
+  // shown a live surge for their blood type (once per alert per session).
+  const respondedAlertIds = useRef(new Set());
 
   async function pushBrowserNotification(alert) {
     if (typeof Notification === "undefined") return;
@@ -358,6 +361,15 @@ export default function HomePanel({ onNavigate }) {
   const surgeTypes = activeSurge ? (activeSurge.bloodTypes ?? (activeSurge.bloodType ? [activeSurge.bloodType] : [])) : [];
   const surgeLabel = surgeTypes.join(", ") || (activeSurge?.bloodType ?? "");
   const surgeBadge = surgeTypes.length > 1 ? "MULTI" : (surgeTypes[0] ?? activeSurge?.bloodType ?? "");
+
+  // Record the donor's engagement once per surge they're shown (drives the HSA
+  // console's live "Responses" metric). Fire-and-forget; failures don't matter.
+  useEffect(() => {
+    const id = activeSurge?.alertId;
+    if (!id || respondedAlertIds.current.has(id)) return;
+    respondedAlertIds.current.add(id);
+    respondSurge(id).catch(() => {});
+  }, [activeSurge?.alertId]);
 
   // Shared across screens
   const hour      = new Date().getHours();

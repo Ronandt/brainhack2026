@@ -128,8 +128,13 @@ def _get_donor(donor_id: str, email: str | None = None) -> dict:
 
 
 def _update_donor(donor_id: str, body: dict, email: str | None = None) -> dict:
-    allowed_fields = {"name", "bloodType", "postalCode", "pushToken", "pushSubscription", "lastDonatedAt", "department", "phone", "email", "gender"}
+    allowed_fields = {"name", "bloodType", "postalCode", "pushToken", "pushSubscription", "lastDonatedAt", "department", "phone", "email", "gender", "surgeOptOut"}
     updates = {k: v for k, v in body.items() if k in allowed_fields}
+
+    # Notification preference is a real boolean; coerce so the notify Lambda's
+    # truthiness check (`donor.get("surgeOptOut")`) can't be tripped by a "false" string.
+    if "surgeOptOut" in updates:
+        updates["surgeOptOut"] = bool(updates["surgeOptOut"])
 
     # Always keep the donor's contact email in sync with their Cognito identity
     # so surge alerts can reach them, even if the client didn't send it.

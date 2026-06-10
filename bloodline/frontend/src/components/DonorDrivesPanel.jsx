@@ -249,7 +249,7 @@ function MapcnLocationMap({ location, onSelect }) {
 }
 
 // ── Bloodbank picker — card grid of 5 banks ──────────────────────────────────
-function BloodbankPicker({ allSlots, hasActiveBooking, onSelect }) {
+function BloodbankPicker({ allSlots, hasActiveBooking, onSelect, userCoords }) {
   const today = todayISO();
   const banks = Object.keys(BANK_INFO);
 
@@ -261,6 +261,11 @@ function BloodbankPicker({ allSlots, hasActiveBooking, onSelect }) {
         const avail   = allSlots.filter(s => s.location === name && s.date === today && (s.booked ?? 0) < (s.capacity ?? 15)).length;
         const total   = allSlots.filter(s => s.location === name && s.date === today).length;
         const dimmed  = hasActiveBooking;
+        // Distance from the donor to this bank (once we have a location fix).
+        const bankCoords = BLOODBANK_COORDS[name];
+        const distanceKm = (userCoords && bankCoords)
+          ? haversineKm(userCoords.lat, userCoords.lng, bankCoords.lat, bankCoords.lng)
+          : null;
 
         return (
           <button
@@ -293,6 +298,9 @@ function BloodbankPicker({ allSlots, hasActiveBooking, onSelect }) {
                 </div>
                 <div style={{ fontFamily: BL.mono, fontSize: 10, color: hours ? BL.muted : BL.need.critical.fg, letterSpacing: 0.3 }}>
                   {hours ? `Today  ${hours}` : "Closed today"}
+                  {distanceKm != null && (
+                    <span style={{ color: BL.red, fontWeight: 600 }}>{"  ·  "}{formatDistance(distanceKm)} away</span>
+                  )}
                 </div>
               </div>
               {total > 0 && (
@@ -1211,6 +1219,7 @@ export default function DonorDrivesPanel() {
             allSlots={items.filter(s => s._type === "slot")}
             hasActiveBooking={isBooked}
             onSelect={bank => { setSelectedBank(bank); setBbDateStr(todayISO()); }}
+            userCoords={userCoords}
           />
         )
       )}

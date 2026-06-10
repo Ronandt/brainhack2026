@@ -39,6 +39,8 @@ export const getSurgeReach = (geoTier, bloodTypes) =>
   request(`/api/v1/surge/reach?geoTier=${encodeURIComponent(geoTier)}&bloodTypes=${encodeURIComponent((bloodTypes ?? []).join(","))}`);
 export const endSurge = (alertId) =>
   request(`/api/v1/surge/${alertId}/end`, { method: "POST" });
+export const respondSurge = (alertId) =>
+  request(`/api/v1/surge/${alertId}/respond`, { method: "POST" });
 
 // Schedule
 export const getDrives = (bloodType) =>

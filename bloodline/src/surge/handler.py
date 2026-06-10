@@ -97,6 +97,9 @@ def lambda_handler(event: dict, context: LambdaContext) -> dict:
     if method == "POST" and "/end" in path:
         alert_id = (event.get("pathParameters") or {}).get("alertId")
         return _end_surge(event, alert_id)
+    if method == "POST" and "/respond" in path:
+        alert_id = (event.get("pathParameters") or {}).get("alertId")
+        return _respond_surge(alert_id)
     if method == "POST":
         return _activate_surge(event)
     if method == "GET" and "/reach" in path:
@@ -137,6 +140,9 @@ def _preview_reach(event: dict) -> dict:
         banks = _hospital_coords()
         if banks:
             donors = [d for d in donors if _within_radius(d, banks, radius_km)]
+
+    # Mirror notify: opted-out donors are never alerted, so they don't count toward reach.
+    donors = [d for d in donors if not d.get("surgeOptOut")]
 
     return _response(200, {"notified": len(donors), "geoTier": geo_tier, "banks": len(banks)})
 
@@ -249,6 +255,27 @@ def _end_surge(event: dict, alert_id: str) -> dict:
     return _response(200, {"alertId": alert_id, "status": "ended"})
 
 
+def _respond_surge(alert_id: str) -> dict:
+    """Count a donor engaging with a live surge in-app — the funnel step between
+    being notified and booking. Any authenticated donor may call it (no admin
+    gate); the donor app fires it once per alert, so it approximates unique
+    donors who opened the call. Never errors the donor app on an unknown/ended
+    alert — there's just nothing to count.
+    """
+    if not alert_id:
+        return _response(400, {"error": "alertId is required"})
+    try:
+        alerts_table.update_item(
+            Key={"alertId": alert_id},
+            UpdateExpression="ADD responses :one",
+            ExpressionAttributeValues={":one": 1},
+            ConditionExpression=Attr("alertId").exists(),
+        )
+    except Exception:
+        return _response(200, {"alertId": alert_id, "counted": False})
+    return _response(200, {"alertId": alert_id, "counted": True})
+
+
 def _monitor_surge(event: dict) -> dict:
     # List all active alerts with live metrics
     result = alerts_table.scan(
@@ -257,7 +284,7 @@ def _monitor_surge(event: dict) -> dict:
     alerts = result.get("Items", [])
 
     for alert in alerts:
-        for key in ("donorsNotified", "emailsSent", "responses", "bookings"):
+        for key in ("donorsNotified", "emailsSent", "pushSent", "smsSent", "responses", "bookings"):
             if key in alert:
                 alert[key] = int(alert[key])
 

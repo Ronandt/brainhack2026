@@ -250,7 +250,9 @@ export default function SurgePanel() {
               <Card pad={10} style={{ flex: 1 }}>
                 <Tag>Channels</Tag>
                 <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
-                  {[["Push", true], ["SMS", true], ["WhatsApp", false], ["Email", false]].map(([ch, on]) => (
+                  {/* Reflects what the notify Lambda actually dispatches: push + email
+                      are always on; SMS is env-gated (SMS_ENABLED, off by default); no WhatsApp. */}
+                  {[["Push", true], ["Email", true], ["SMS", false], ["WhatsApp", false]].map(([ch, on]) => (
                     <span key={ch} style={{
                       fontFamily: BL.mono, fontSize: 9, letterSpacing: 0.4, textTransform: "uppercase",
                       color: on ? BL.ink : BL.faint,
@@ -341,7 +343,7 @@ export default function SurgePanel() {
               <Tag color={BL.surge}>Break glass · single-officer activation</Tag>
               <div style={{ fontFamily: BL.sans, fontSize: 14, color: BL.ink, fontWeight: 500, marginTop: 8, lineHeight: 1.4 }}>
                 Activating will notify <strong>{reach.notified.toLocaleString()}</strong> donors by push + email and shift the donor app into surge mode.
-                Cannot be undone for 6h.
+                You can end it anytime from the live monitor below.
               </div>
               <button
                 type="submit"

@@ -159,6 +159,14 @@ def _dispatch_notifications(message: dict) -> None:
             logger.warning("No hospital coordinates available — radius filter skipped", alert_id=alert_id)
         logger.info("Radius filter applied", alert_id=alert_id, radius_km=radius_km, banks=len(banks), before=before, after=len(donors))
 
+    # Honour the opt-out the alert email/SMS advertise ("opt out in Profile >
+    # Notifications"). A donor with surgeOptOut set is dropped from every channel
+    # (email, push, SMS) and from the notified count — not just suppressed silently.
+    opted_in = [d for d in donors if not d.get("surgeOptOut")]
+    if len(opted_in) != len(donors):
+        logger.info("Opt-outs excluded", alert_id=alert_id, excluded=len(donors) - len(opted_in))
+    donors = opted_in
+
     logger.info("Donors matched for surge", alert_id=alert_id, blood_types=blood_types, geo_tier=geo_tier, matched=len(donors))
 
     # Every matched donor is moved into surge mode and sees the in-app alert

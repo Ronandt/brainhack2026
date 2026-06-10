@@ -514,6 +514,12 @@ Resources:
             RestApiId: !Ref BloodlineApi
             Path: /api/v1/surge/{alertId}/end
             Method: POST
+        RespondSurge:
+          Type: Api
+          Properties:
+            RestApiId: !Ref BloodlineApi
+            Path: /api/v1/surge/{alertId}/respond
+            Method: POST
 
   NotifyFunction:
     Type: AWS::Serverless::Function
@@ -575,6 +581,11 @@ Resources:
             TableName: !Ref SlotBookingsTable
         - DynamoDBCrudPolicy:
             TableName: !Ref NotificationsTable
+        # Read the booking donor's blood type + credit the booking to a live surge
+        - DynamoDBReadPolicy:
+            TableName: !Ref DonorsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref AlertsTable
       Events:
         ListMyBookings:
           Type: Api

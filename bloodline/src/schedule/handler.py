@@ -19,6 +19,8 @@ drives_table = dynamodb.Table(os.environ["BLOOD_DRIVES_TABLE"])
 bookings_table = dynamodb.Table(os.environ["BOOKINGS_TABLE"])
 slots_table = dynamodb.Table(os.environ["DONATION_SLOTS_TABLE"])
 slot_bookings_table = dynamodb.Table(os.environ["SLOT_BOOKINGS_TABLE"])
+donors_table = dynamodb.Table(os.environ["DONORS_TABLE"])
+alerts_table = dynamodb.Table(os.environ["ALERTS_TABLE"])
 notifs_table = dynamodb.Table(os.environ.get("NOTIFICATIONS_TABLE", f"bloodline-notifications-{os.environ.get('STAGE', 'dev')}"))
 
 ONEMAP_SEARCH = "https://www.onemap.gov.sg/api/common/elastic/search"
@@ -275,6 +277,38 @@ def _list_slots(event: dict) -> dict:
     return _response(200, {"slots": slots, "count": len(slots)})
 
 
+def _attribute_surge_booking(donor_id: str) -> None:
+    """Credit this booking to the active surge calling for the donor's blood type.
+
+    Closes the surge funnel: the HSA console's "Bookings" metric becomes the real
+    count of donors who booked in response to a live alert. Best-effort — any
+    failure here is logged and swallowed so it can never break the booking itself.
+    A donor's type maps to at most one active surge (surges supersede on overlap).
+    """
+    try:
+        donor = donors_table.get_item(Key={"donorId": donor_id}).get("Item")
+        blood_type = donor and donor.get("bloodType")
+        if not blood_type:
+            return
+        active = alerts_table.scan(
+            FilterExpression=Attr("status").eq("active")
+        ).get("Items", [])
+        for alert in active:
+            types = set(alert.get("bloodTypes")
+                        or ([alert["bloodType"]] if alert.get("bloodType") else []))
+            if blood_type in types:
+                alerts_table.update_item(
+                    Key={"alertId": alert["alertId"]},
+                    UpdateExpression="ADD bookings :one",
+                    ExpressionAttributeValues={":one": 1},
+                )
+                logger.info("Surge booking attributed",
+                            alert_id=alert["alertId"], donor_id=donor_id,
+                            blood_type=blood_type)
+    except Exception:
+        logger.exception("Surge booking attribution failed", donor_id=donor_id)
+
+
 def _book_slot(event: dict) -> dict:
     donor_id = _donor_id_from_event(event)
     slot_id = (event.get("pathParameters") or {}).get("slotId")
@@ -327,6 +361,7 @@ def _book_slot(event: dict) -> dict:
             ExpressionAttributeValues=expr_vals,
         )
 
+    _attribute_surge_booking(donor_id)
     logger.info("Slot booked", donor_id=donor_id, slot_id=slot_id, booking_id=booking_id)
     return _response(201, {"bookingId": booking_id, "slotId": slot_id, "status": "confirmed"})
 
@@ -490,6 +525,7 @@ def _create_booking(event: dict) -> dict:
         ExpressionAttributeValues={":one": 1},
     )
 
+    _attribute_surge_booking(donor_id)
     logger.info("Booking created", donor_id=donor_id, drive_id=drive_id, booking_id=booking_id)
     return _response(201, {
         "bookingId": booking_id,
