@@ -1,5 +1,7 @@
 import json
 import os
+import urllib.parse
+import urllib.request
 import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -18,6 +20,103 @@ bookings_table = dynamodb.Table(os.environ["BOOKINGS_TABLE"])
 slots_table = dynamodb.Table(os.environ["DONATION_SLOTS_TABLE"])
 slot_bookings_table = dynamodb.Table(os.environ["SLOT_BOOKINGS_TABLE"])
 notifs_table = dynamodb.Table(os.environ.get("NOTIFICATIONS_TABLE", f"bloodline-notifications-{os.environ.get('STAGE', 'dev')}"))
+
+ONEMAP_SEARCH = "https://www.onemap.gov.sg/api/common/elastic/search"
+
+# Fixed sites whose names OneMap can't resolve (they're app labels, not places).
+# Coordinates are applied directly so these always have a location for proximity.
+KNOWN_COORDS = {
+    "Bloodbank@HSA":          (1.2812, 103.8389),
+    "Bloodbank@Dhoby Ghaut":  (1.2993, 103.8455),
+    "Bloodbank@Woodlands":    (1.4360, 103.7865),
+    "Bloodbank@Westgate":     (1.3338, 103.7430),
+    "Bloodbank@One Punggol":  (1.4050, 103.9020),
+    "HSA Bloodbank":          (1.2812, 103.8389),
+    "Singapore Red Cross":    (1.2966, 103.8485),
+}
+
+
+def _geocode_onemap(location: str):
+    """Geocode a location name to (lat, lng) via OneMap (server-side, no CORS).
+
+    Returns (lat, lng) on a hit, (None, None) on a genuine no-match. Raises on a
+    transient error (timeout / 429 / network) so the caller can retry later.
+    """
+    qs = urllib.parse.urlencode({
+        "searchVal": location, "returnGeom": "Y",
+        "getAddrDetails": "N", "pageNum": 1,
+    })
+    req = urllib.request.Request(f"{ONEMAP_SEARCH}?{qs}", headers={"User-Agent": "bloodline"})
+    with urllib.request.urlopen(req, timeout=3) as resp:  # noqa: S310 (trusted host)
+        data = json.loads(resp.read().decode())
+    results = data.get("results") or []
+    if results:
+        return float(results[0]["LATITUDE"]), float(results[0]["LONGITUDE"])
+    return None, None
+
+
+def _ensure_coords(items: list, table, id_field: str, limit: int = 8) -> None:
+    """Lazily geocode items missing lat/lng and persist the result, so each unique
+    location is only geocoded once (avoids the browser hitting OneMap/Nominatim
+    rate limits on every page load). Dedupes by location name and caps unique
+    geocodes per request to bound latency.
+    """
+    resolved = {}        # location -> (lat, lng)
+    no_match = set()     # locations OneMap genuinely couldn't place
+    attempted = set()    # locations tried this request (incl. transient failures)
+    geocoded = 0
+
+    for item in items:
+        if item.get("lat") is not None and item.get("lng") is not None:
+            continue
+        loc = item.get("location")
+        if not loc:
+            continue
+
+        # Fixed sites: apply hardcoded coords directly (no geocoding, no rate
+        # limit), even if a previous OneMap attempt wrongly marked them failed.
+        if loc in KNOWN_COORDS:
+            lat, lng = KNOWN_COORDS[loc]
+            item["lat"], item["lng"] = lat, lng
+            table.update_item(
+                Key={id_field: item[id_field]},
+                UpdateExpression="SET lat = :a, lng = :o REMOVE geocodeFailed",
+                ExpressionAttributeValues={":a": Decimal(str(lat)), ":o": Decimal(str(lng))},
+            )
+            continue
+
+        if item.get("geocodeFailed"):
+            continue
+
+        if loc not in resolved and loc not in no_match and loc not in attempted:
+            if geocoded >= limit:
+                continue  # over budget this request — pick it up next time
+            geocoded += 1
+            attempted.add(loc)
+            try:
+                lat, lng = _geocode_onemap(loc)
+            except Exception:
+                logger.warning("OneMap geocode transient error — will retry", location=loc)
+                continue  # transient (429/timeout) — retry on a later request
+            if lat is not None and lng is not None:
+                resolved[loc] = (lat, lng)
+            else:
+                no_match.add(loc)
+
+        if loc in resolved:
+            lat, lng = resolved[loc]
+            item["lat"], item["lng"] = lat, lng
+            table.update_item(
+                Key={id_field: item[id_field]},
+                UpdateExpression="SET lat = :a, lng = :o",
+                ExpressionAttributeValues={":a": Decimal(str(lat)), ":o": Decimal(str(lng))},
+            )
+        elif loc in no_match:
+            table.update_item(
+                Key={id_field: item[id_field]},
+                UpdateExpression="SET geocodeFailed = :t",
+                ExpressionAttributeValues={":t": True},
+            )
 
 
 def _response(status_code: int, body: dict) -> dict:
@@ -165,6 +264,7 @@ def _list_slots(event: dict) -> dict:
 
     result = slots_table.scan(FilterExpression=filter_expr)
     slots = result.get("Items", [])
+    _ensure_coords(slots, slots_table, "slotId")
     for slot in slots:
         for key in ("capacity", "booked"):
             if key in slot:
@@ -334,6 +434,7 @@ def _list_drives(event: dict) -> dict:
 
     result = drives_table.scan(FilterExpression=filter_expr)
     drives = result.get("Items", [])
+    _ensure_coords(drives, drives_table, "driveId")
     for drive in drives:
         for key in ("capacity", "booked", "availableSlots"):
             if key in drive:

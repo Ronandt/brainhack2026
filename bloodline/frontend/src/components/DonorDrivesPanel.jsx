@@ -963,35 +963,9 @@ export default function DonorDrivesPanel() {
     }
   }
 
-  // Geocode drive location names (those not already placed by lat/lng or a known
-  // blood bank) so drives also get a distance and sort by proximity.
-  useEffect(() => {
-    const pending = [...new Set(
-      items
-        .filter(it => it.location && it.lat == null && it.lng == null && !BLOODBANK_COORDS[it.location])
-        .map(it => it.location)
-    )].filter(loc => !(loc in geoCache));
-    if (pending.length === 0) return;
-
-    let cancelled = false;
-    (async () => {
-      for (const loc of pending) {
-        try {
-          // OneMap (Singapore gov) — CORS-friendly, unlike Nominatim which blocks
-          // browser origins and rate-limits (429).
-          const res = await fetch(`https://www.onemap.gov.sg/api/common/elastic/search?searchVal=${encodeURIComponent(loc)}&returnGeom=Y&getAddrDetails=N&pageNum=1`);
-          const data = res.ok ? await res.json() : {};
-          if (cancelled) return;
-          const hit = (data.results || [])[0];
-          setGeoCache(prev => ({ ...prev, [loc]: hit ? { lat: Number(hit.LATITUDE), lng: Number(hit.LONGITUDE) } : null }));
-        } catch {
-          if (cancelled) return;
-          setGeoCache(prev => ({ ...prev, [loc]: null }));
-        }
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [items, geoCache]);
+  // Coordinates are geocoded + persisted server-side now (in /slots and /drives),
+  // so the client no longer geocodes — it just reads item.lat/lng (avoids the
+  // browser hammering OneMap/Nominatim and getting 429-rate-limited).
 
   function requestNearby(radiusKm) {
     if (!navigator.geolocation) { setLocError("Geolocation not supported by your browser."); return; }
