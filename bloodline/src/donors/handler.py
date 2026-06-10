@@ -14,8 +14,9 @@ dynamodb = boto3.resource("dynamodb")
 donors_table = dynamodb.Table(os.environ["DONORS_TABLE"])
 donations_table = dynamodb.Table(os.environ["DONATIONS_TABLE"])
 
-# Singapore HSA eligibility: whole blood donors must wait 56 days between donations
-ELIGIBILITY_DAYS = 56
+# Singapore HSA whole-blood donation interval: 12 weeks (84 days / ~3 months) for all donors
+ELIGIBILITY_DAYS = {"male": 84, "female": 84}
+ELIGIBILITY_DAYS_DEFAULT = 84
 
 ONEMAP_SEARCH = "https://www.onemap.gov.sg/api/common/elastic/search"
 
@@ -49,12 +50,17 @@ def _email_from_event(event: dict) -> str | None:
     return event["requestContext"]["authorizer"]["claims"].get("email")
 
 
-def _compute_eligibility(last_donated_at: str | None) -> dict:
+def _compute_eligibility(last_donated_at: str | None, gender: str | None = None) -> dict:
+    wait_days = ELIGIBILITY_DAYS.get((gender or "").lower(), ELIGIBILITY_DAYS_DEFAULT)
+
     if not last_donated_at:
-        return {"eligible": True, "daysUntilEligible": 0, "nextEligibleDate": None}
+        return {
+            "eligible": True, "daysUntilEligible": 0,
+            "nextEligibleDate": None, "donationIntervalDays": wait_days,
+        }
 
     last_date = datetime.fromisoformat(last_donated_at)
-    next_eligible = last_date + timedelta(days=ELIGIBILITY_DAYS)
+    next_eligible = last_date + timedelta(days=wait_days)
     today = datetime.now(timezone.utc)
     days_remaining = max(0, (next_eligible - today).days)
 
@@ -62,6 +68,7 @@ def _compute_eligibility(last_donated_at: str | None) -> dict:
         "eligible": days_remaining == 0,
         "daysUntilEligible": days_remaining,
         "nextEligibleDate": next_eligible.date().isoformat(),
+        "donationIntervalDays": wait_days,
     }
 
 
@@ -105,7 +112,7 @@ def _get_donor(donor_id: str, email: str | None = None) -> dict:
         )
         donor["email"] = email
 
-    eligibility = _compute_eligibility(donor.get("lastDonatedAt"))
+    eligibility = _compute_eligibility(donor.get("lastDonatedAt"), donor.get("gender"))
     donor.update(eligibility)
 
     # Fetch donation count for badge tier
@@ -121,7 +128,7 @@ def _get_donor(donor_id: str, email: str | None = None) -> dict:
 
 
 def _update_donor(donor_id: str, body: dict, email: str | None = None) -> dict:
-    allowed_fields = {"name", "bloodType", "postalCode", "pushToken", "lastDonatedAt", "department", "phone", "email"}
+    allowed_fields = {"name", "bloodType", "postalCode", "pushToken", "lastDonatedAt", "department", "phone", "email", "gender"}
     updates = {k: v for k, v in body.items() if k in allowed_fields}
 
     # Always keep the donor's contact email in sync with their Cognito identity

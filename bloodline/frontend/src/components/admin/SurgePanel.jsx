@@ -115,18 +115,12 @@ export default function SurgePanel() {
   const responses = Math.round(notified * (TIER_RATE[geoTier] ?? 0.1));
   const reach = { notified, responses };
   const bloodLabel = bloodTypes.length ? bloodTypes.join(", ") : "—";
-<<<<<<< HEAD
-  const activeAlerts = alerts
-    .filter(a => a.status === "active")
-    .sort((a, b) => (b.activatedAt ?? "").localeCompare(a.activatedAt ?? ""));
-=======
   const activeAlerts = alerts.filter(a => a.status === "active");
   // Live monitor: every active alert first (so each stays cancellable), then a few recent ended ones for context
   const monitorAlerts = [
     ...activeAlerts,
     ...alerts.filter(a => a.status !== "active").slice(0, 3),
   ];
->>>>>>> ead547d8f2c0987ba49e4537f78b626395b0789d
 
   const labelStyle = { display: "block", fontFamily: BL.sans, fontSize: 12, color: BL.muted, marginBottom: 6, marginTop: 16 };
   const inputStyle = {
@@ -351,11 +345,7 @@ export default function SurgePanel() {
           {activeAlerts.length > 0 && (
             <W pad={16} style={{ marginTop: 14 }}>
               <div style={{ fontFamily: BL.sans, fontSize: 13, fontWeight: 600, color: BL.ink, marginBottom: 10 }}>Live alert monitor</div>
-<<<<<<< HEAD
-              {activeAlerts.slice(0, 3).map(a => (
-=======
               {monitorAlerts.map(a => (
->>>>>>> ead547d8f2c0987ba49e4537f78b626395b0789d
                 <div key={a.alertId} style={{ background: BL.fill, borderRadius: 6, padding: "10px 12px", marginBottom: 8 }}>
                   <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 6 }}>
                     <span style={{ fontFamily: BL.mono, fontWeight: 600, color: BL.red, fontSize: 14 }}>{a.bloodType}</span>

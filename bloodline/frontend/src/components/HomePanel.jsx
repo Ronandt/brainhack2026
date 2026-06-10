@@ -77,7 +77,7 @@ function TimelineNode({ dot, line, tag, answer, answerColor, sub, children, last
   );
 }
 
-export default function HomePanel() {
+export default function HomePanel({ onNavigate }) {
   const [donor,             setDonor]             = useState(null);
   const [status,            setStatus]            = useState(null);
   const [drives,            setDrives]            = useState([]); // used for surge action card
@@ -357,7 +357,7 @@ export default function HomePanel() {
         )}
 
         <button
-          onClick={() => selectedSlot && setScreen("confirm")}
+          onClick={() => { if (selectedSlot) { setCheckedItems({}); setScreen("confirm"); } }}
           disabled={!selectedSlot}
           style={{
             width: "100%", padding: "13px 0", marginTop: 4,
@@ -380,13 +380,20 @@ export default function HomePanel() {
       ? `${slot.startTime}–${slot.endTime}`
       : slot.startTime ?? "";
 
-    const CHECK_ITEMS = [
+    const BASE_ITEMS = [
       "Slept ≥ 5 hours last night",
       "Ate a meal in the last 3 hours",
       "Feeling well, no fever",
       "No recent travel to malaria-risk area",
     ];
-    const allChecked = CHECK_ITEMS.every((_, i) => checkedItems[i]);
+    const FEMALE_ITEMS = [
+      { text: "Not currently pregnant", note: null },
+      { text: "6+ weeks since giving birth", note: "If applicable" },
+      { text: "No heavy menstrual flow today", note: null },
+    ];
+    const isFemale = donor?.gender === "female";
+    const totalCount = BASE_ITEMS.length + (isFemale ? FEMALE_ITEMS.length : 0);
+    const allChecked = Array.from({ length: totalCount }, (_, i) => !!checkedItems[i]).every(Boolean);
 
     function toggleCheck(i) {
       setCheckedItems(prev => ({ ...prev, [i]: !prev[i] }));
@@ -395,7 +402,7 @@ export default function HomePanel() {
     return (
       <div>
         <button
-          onClick={() => setScreen("booking")}
+          onClick={() => onNavigate?.("drives")}
           style={{
             background: "none", border: "none", cursor: "pointer",
             fontFamily: BL.sans, fontSize: 13, color: BL.ink,
@@ -439,11 +446,13 @@ export default function HomePanel() {
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
             <Tag>Quick check</Tag>
             {!allChecked
-              ? <Tag color={BL.muted}>{CHECK_ITEMS.filter((_, i) => checkedItems[i]).length}/{CHECK_ITEMS.length}</Tag>
+              ? <Tag color={BL.muted}>{Object.values(checkedItems).filter(Boolean).length}/{totalCount}</Tag>
               : <Tag color={BL.need.ok.fg}>All good ✓</Tag>
             }
           </div>
-          {CHECK_ITEMS.map((item, i) => {
+
+          {/* Base items */}
+          {BASE_ITEMS.map((text, i) => {
             const checked = !!checkedItems[i];
             return (
               <button
@@ -468,11 +477,71 @@ export default function HomePanel() {
                   {checked ? "✓" : ""}
                 </div>
                 <span style={{ fontFamily: BL.sans, fontSize: 14, lineHeight: 1.4, color: checked ? BL.ink : BL.muted }}>
-                  {item}
+                  {text}
                 </span>
               </button>
             );
           })}
+
+          {/* Female-specific items */}
+          {isFemale && (
+            <>
+              <div style={{
+                display: "flex", alignItems: "center", gap: 8,
+                marginTop: 14, marginBottom: 4,
+                borderTop: `1px solid ${BL.hair}`, paddingTop: 12,
+              }}>
+                <div style={{ flex: 1, height: 1, background: "transparent" }} />
+                <span style={{
+                  fontFamily: BL.mono, fontSize: 9, letterSpacing: 0.6,
+                  textTransform: "uppercase", color: BL.muted,
+                  background: BL.fill, padding: "0 8px",
+                }}>
+                  Female donors
+                </span>
+                <div style={{ flex: 1, height: 1, background: "transparent" }} />
+              </div>
+
+              {FEMALE_ITEMS.map(({ text, note }, j) => {
+                const i = BASE_ITEMS.length + j;
+                const checked = !!checkedItems[i];
+                return (
+                  <button
+                    key={i}
+                    onClick={() => toggleCheck(i)}
+                    style={{
+                      display: "flex", alignItems: "center", gap: 12,
+                      width: "100%", textAlign: "left",
+                      background: "none", border: "none", cursor: "pointer",
+                      padding: "10px 0",
+                      borderTop: j > 0 ? `1px solid ${BL.hair}` : "none",
+                      minHeight: 44,
+                    }}
+                  >
+                    <div style={{
+                      width: 22, height: 22, borderRadius: 6, flexShrink: 0,
+                      background: checked ? BL.ink : BL.card,
+                      border: `1.5px solid ${checked ? BL.ink : BL.rule}`,
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      color: "#fff", fontSize: 12, fontWeight: 700,
+                    }}>
+                      {checked ? "✓" : ""}
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <span style={{ fontFamily: BL.sans, fontSize: 14, lineHeight: 1.4, color: checked ? BL.ink : BL.muted }}>
+                        {text}
+                      </span>
+                      {note && (
+                        <span style={{ fontFamily: BL.sans, fontSize: 11, color: BL.faint, marginLeft: 6 }}>
+                          · {note}
+                        </span>
+                      )}
+                    </div>
+                  </button>
+                );
+              })}
+            </>
+          )}
         </Card>
 
         <div style={{ fontFamily: BL.sans, fontSize: 12, color: BL.muted, lineHeight: 1.5, marginBottom: 16 }}>
@@ -720,7 +789,7 @@ export default function HomePanel() {
           <Tag>What to bring</Tag>
           <div style={{ marginTop: 10 }}>
             {[
-              "NRIC or passport for registration",
+              "NRIC or Singpass for registration",
               "Eat a full meal beforehand",
               "Drink plenty of water",
               "Wear clothing with sleeves you can roll up",
@@ -846,89 +915,209 @@ export default function HomePanel() {
     );
   }
 
-  // ── Surge mode — full-screen takeover ────────────────────────────
+  // ── Surge mode ───────────────────────────────────────────────────
   if (activeSurge) {
-    const nearestSlot = slots[0] ?? null;
-    const alertDate   = new Date().toLocaleDateString("en-SG", { day: "numeric", month: "short" }).toUpperCase();
-    const alertTime   = new Date().toLocaleTimeString("en-SG", { hour: "2-digit", minute: "2-digit" });
+    const alertDate = new Date().toLocaleDateString("en-SG", { day: "numeric", month: "short" });
+    const alertTime = new Date().toLocaleTimeString("en-SG", { hour: "2-digit", minute: "2-digit" });
+
+    // Sort available slots by date+time, pick nearest bloodbank
+    const surgeSlots = slots
+      .filter(s => s.status === "available")
+      .sort((a, b) => (a.date + (a.startTime ?? "")).localeCompare(b.date + (b.startTime ?? "")));
+    const nearestLoc  = surgeSlots[0]?.location ?? null;
+    const locSlots    = nearestLoc ? surgeSlots.filter(s => s.location === nearestLoc) : [];
+    const shownSlots  = locSlots.slice(0, 3);
+    const extraCount  = Math.max(0, locSlots.length - 3);
+    const pickedSlot  = (selectedSlot && locSlots.find(s => s.slotId === selectedSlot.slotId))
+      ? selectedSlot : (locSlots[0] ?? null);
+
+    const BANK_AREA = {
+      "Bloodbank@HSA": "Outram", "Bloodbank@Dhoby Ghaut": "Orchard",
+      "Bloodbank@Woodlands": "Woodlands", "Bloodbank@Westgate": "Jurong East",
+      "Bloodbank@One Punggol": "Punggol",
+    };
+    const area = nearestLoc ? (BANK_AREA[nearestLoc] ?? nearestLoc.replace("Bloodbank@", "")) : null;
+
+    function fmtSlotTime(slot) {
+      if (!slot?.startTime) return "—";
+      const [h, m] = slot.startTime.split(":").map(Number);
+      return `${h % 12 || 12}:${String(m).padStart(2, "0")} ${h >= 12 ? "PM" : "AM"}`;
+    }
 
     return (
       <div style={{ margin: "0 -16px" }}>
-        <div style={{ background: BL.surgeBg, borderBottom: `1px solid ${BL.surge}33`, padding: "10px 16px", display: "flex", alignItems: "center", gap: 10 }}>
-          <div style={{ width: 8, height: 8, borderRadius: 4, background: BL.surge, boxShadow: `0 0 0 4px ${BL.surge}22`, flexShrink: 0 }} />
-          <Tag color={BL.surge}>SURGE MODE · ACTIVE</Tag>
+        {/* Gradient hero: surgeBg fading to white */}
+        <div style={{
+          background: `linear-gradient(to bottom, ${BL.surgeBg} 0%, #fff8f7 55%, #ffffff 100%)`,
+          paddingBottom: 4,
+        }}>
+          {/* Strip header */}
+          <div style={{ padding: "10px 16px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <div style={{ width: 8, height: 8, borderRadius: 4, background: BL.surge, boxShadow: `0 0 0 4px ${BL.surge}22`, flexShrink: 0 }} />
+              <Tag color={BL.surge}>SURGE MODE · LIVE</Tag>
+            </div>
+            <span style={{ fontFamily: BL.mono, fontSize: 10, color: BL.muted, letterSpacing: 0.3 }}>
+              {alertDate}, {alertTime}
+            </span>
+          </div>
+
+          {/* Headline + blood type badge */}
+          <div style={{
+            padding: "16px 16px 24px",
+            display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12,
+          }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{
+                fontFamily: BL.sans, fontSize: 32, fontWeight: 700, color: BL.ink,
+                lineHeight: 1.05, letterSpacing: -1, marginBottom: 10,
+              }}>
+                {surgeLabel} is needed today.
+              </div>
+              <div style={{ fontFamily: BL.sans, fontSize: 14, color: BL.muted, lineHeight: 1.6 }}>
+                {activeSurge.message || `HSA is calling all eligible ${surgeLabel} donors. Reserves are critically low — every unit counts.`}
+              </div>
+            </div>
+            {/* Blood type badge — soft red gradient */}
+            <div style={{
+              width: 76, height: 76, borderRadius: 18, flexShrink: 0,
+              background: `linear-gradient(135deg, ${BL.surgeBg} 0%, #fcd7d7 100%)`,
+              border: `1.5px solid ${BL.surge}30`,
+              display: "flex", alignItems: "center", justifyContent: "center",
+              fontFamily: BL.mono, fontSize: surgeBadge.length > 3 ? 14 : 22,
+              fontWeight: 700, color: BL.surge,
+              boxShadow: `0 4px 16px ${BL.surge}18`,
+            }}>
+              {surgeBadge}
+            </div>
+          </div>
         </div>
 
-        <div style={{ padding: "20px 16px 16px" }}>
-          <div style={{ fontFamily: BL.mono, fontSize: 10, color: BL.muted, letterSpacing: 0.8 }}>
-            HSA NATIONAL ALERT · {alertDate} · {alertTime}
-          </div>
-          <div style={{ fontFamily: BL.sans, fontSize: 30, fontWeight: 600, color: BL.ink, lineHeight: 1.05, letterSpacing: -0.8, marginTop: 8 }}>
-            {surgeLabel} is needed today.
-          </div>
-          <div style={{ fontFamily: BL.sans, fontSize: 15, color: BL.muted, lineHeight: 1.5, marginTop: 10 }}>
-            {activeSurge.message || `HSA is calling all eligible ${surgeLabel} donors. Reserves are critically low — every unit counts.`}
-          </div>
+        {/* Slot picker + actions */}
+        <div style={{ padding: "0 16px 16px" }}>
 
-          <div style={{ marginTop: 18, padding: 16, background: BL.surgeBg, border: `1px solid ${BL.surge}55`, borderRadius: 8 }}>
-            {nearestSlot ? (
+          {/* Slot card — soft shadow, no hard border */}
+          <div style={{
+            background: BL.card,
+            borderRadius: 16, padding: 18, marginBottom: 12,
+            boxShadow: `0 2px 20px ${BL.surge}10, 0 1px 4px rgba(0,0,0,0.06)`,
+            border: `1px solid ${BL.surge}14`,
+          }}>
+            {nearestLoc ? (
               <>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <div style={{ flex: 1, minWidth: 0, marginRight: 12 }}>
-                    <div style={{ fontFamily: BL.sans, fontSize: 15, color: BL.ink, fontWeight: 600 }}>{nearestSlot.name || nearestSlot.location}</div>
-                    {nearestSlot.name && nearestSlot.location && (
-                      <div style={{ fontFamily: BL.sans, fontSize: 12, color: BL.muted, marginTop: 2 }}>{nearestSlot.location}</div>
-                    )}
-                    {nearestSlot.startTime && (
-                      <div style={{ fontFamily: BL.mono, fontSize: 11, color: BL.muted, marginTop: 4, letterSpacing: 0.3 }}>
-                        {nearestSlot.date} · {nearestSlot.startTime}
+                {/* Location row */}
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
+                  <div>
+                    <div style={{ fontFamily: BL.mono, fontSize: 9, color: BL.muted, letterSpacing: 0.6, textTransform: "uppercase", marginBottom: 4 }}>
+                      Nearest open slot
+                    </div>
+                    <div style={{ fontFamily: BL.sans, fontSize: 17, fontWeight: 700, color: BL.ink }}>
+                      {nearestLoc}
+                    </div>
+                    {area && (
+                      <div style={{ fontFamily: BL.sans, fontSize: 12, color: BL.muted, marginTop: 2 }}>
+                        {area}
                       </div>
                     )}
                   </div>
                   <div style={{
-                    width: 52, height: 52, borderRadius: 6, flexShrink: 0,
-                    background: BL.need.critical.bg, border: `2px solid ${BL.need.critical.fg}`,
+                    width: 40, height: 40, borderRadius: 10, flexShrink: 0,
+                    background: `${BL.surge}12`,
                     display: "flex", alignItems: "center", justifyContent: "center",
-                    fontFamily: BL.mono, fontSize: surgeBadge.length > 3 ? 11 : 13, fontWeight: 700, color: BL.need.critical.fg,
                   }}>
-                    {surgeBadge}
+                    <svg width="16" height="20" viewBox="0 0 16 20" fill="none">
+                      <path d="M8 0C3.58 0 0 3.58 0 8c0 6 8 12 8 12s8-6 8-12c0-4.42-3.58-8-8-8zm0 10.5A2.5 2.5 0 1 1 8 5.5a2.5 2.5 0 0 1 0 5z" fill={BL.surge}/>
+                    </svg>
                   </div>
                 </div>
+
+                <div style={{ height: 1, background: BL.hair, marginBottom: 12 }} />
+
+                {/* Time picker */}
+                <div style={{ fontFamily: BL.mono, fontSize: 9, color: BL.muted, letterSpacing: 0.6, textTransform: "uppercase", marginBottom: 10 }}>
+                  Pick a time
+                </div>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
+                  {shownSlots.map(slot => {
+                    const isPicked = pickedSlot?.slotId === slot.slotId;
+                    return (
+                      <button
+                        key={slot.slotId}
+                        onClick={() => setSelectedSlot(slot)}
+                        style={{
+                          padding: "8px 14px", borderRadius: 8, cursor: "pointer",
+                          fontFamily: BL.sans, fontSize: 13, fontWeight: isPicked ? 700 : 500,
+                          background: isPicked ? `${BL.surge}12` : "none",
+                          color: isPicked ? BL.surge : BL.ink,
+                          border: `1.5px solid ${isPicked ? BL.surge : BL.hair}`,
+                        }}
+                      >
+                        {fmtSlotTime(slot)}
+                      </button>
+                    );
+                  })}
+                  {extraCount > 0 && (
+                    <span style={{ fontFamily: BL.sans, fontSize: 13, color: BL.muted, display: "flex", alignItems: "center" }}>
+                      +{extraCount} more
+                    </span>
+                  )}
+                </div>
+
+                {/* Book + Snooze inline */}
                 {donor?.eligible !== false ? (
-                  <button
-                    onClick={() => { setSelectedSlot(nearestSlot); setScreen("booking"); }}
-                    style={{
-                      width: "100%", marginTop: 14, padding: "13px 0",
-                      background: BL.surge, color: "#fff", border: "none", borderRadius: 8,
-                      fontFamily: BL.sans, fontSize: 14, fontWeight: 600, cursor: "pointer", minHeight: 48,
-                    }}
-                  >
-                    Book a slot →
-                  </button>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button
+                      onClick={() => onNavigate?.("drives")}
+                      style={{
+                        flex: 1, padding: "14px 0",
+                        background: BL.surge, color: "#fff", border: "none", borderRadius: 10,
+                        fontFamily: BL.sans, fontSize: 14, fontWeight: 700, cursor: "pointer", minHeight: 50,
+                      }}
+                    >
+                      {pickedSlot ? `Book ${fmtSlotTime(pickedSlot)}` : "Book a slot →"}
+                    </button>
+                    <button
+                      onClick={handleSnooze}
+                      style={{
+                        width: 88, padding: "14px 0", flexShrink: 0,
+                        border: `1px solid ${BL.hair}`, background: "none", borderRadius: 10,
+                        fontFamily: BL.sans, fontSize: 13, color: BL.muted,
+                        cursor: "pointer", minHeight: 50,
+                      }}
+                    >
+                      Snooze 2h
+                    </button>
+                  </div>
                 ) : (
-                  <div style={{ marginTop: 14, padding: "11px 14px", background: `${BL.surge}18`, borderRadius: 8, fontFamily: BL.sans, fontSize: 13, color: BL.surge }}>
+                  <div style={{ padding: "11px 14px", background: `${BL.surge}10`, borderRadius: 10, fontFamily: BL.sans, fontSize: 13, color: BL.surge }}>
                     You're in the rest window — rally your friends instead.
                   </div>
                 )}
               </>
             ) : (
               <>
-                <div style={{ fontFamily: BL.sans, fontSize: 14, color: BL.ink, fontWeight: 500 }}>Check the Drives tab for nearby locations</div>
-                <div style={{ fontFamily: BL.mono, fontSize: 11, color: BL.muted, marginTop: 4 }}>No slots loaded yet</div>
+                <div style={{ fontFamily: BL.mono, fontSize: 9, color: BL.muted, letterSpacing: 0.6, textTransform: "uppercase", marginBottom: 8 }}>
+                  Nearest open slot
+                </div>
+                <div style={{ fontFamily: BL.sans, fontSize: 14, color: BL.ink, fontWeight: 500, marginBottom: 12 }}>
+                  Check the Book tab for nearby locations
+                </div>
+                <button
+                  onClick={() => onNavigate?.("drives")}
+                  style={{
+                    width: "100%", padding: "14px 0",
+                    background: BL.surge, color: "#fff", border: "none", borderRadius: 8,
+                    fontFamily: BL.sans, fontSize: 14, fontWeight: 700, cursor: "pointer", minHeight: 50,
+                  }}
+                >
+                  Find a slot →
+                </button>
               </>
             )}
           </div>
 
-          <div style={{ marginTop: 12, display: "flex", gap: 8 }}>
-            <button onClick={() => setScreen("mobilise")} style={{ flex: 1, padding: "11px 0", border: `1px solid ${BL.ink}`, background: "none", borderRadius: 7, fontFamily: BL.sans, fontSize: 13, color: BL.ink, cursor: "pointer", minHeight: 44 }}>
-              Mobilise my workplace
-            </button>
-            <button onClick={handleSnooze} style={{ padding: "11px 16px", border: `1px solid ${BL.hair}`, background: "none", borderRadius: 7, fontFamily: BL.sans, fontSize: 13, color: BL.muted, cursor: "pointer", minHeight: 44 }}>
-              Snooze 2h
-            </button>
-          </div>
-
-          <div style={{ marginTop: 16, padding: 12, border: `1px solid ${BL.hair}`, borderRadius: 6 }}>
+          {/* Why you got this */}
+          <div style={{ padding: "12px 14px", background: BL.fill, borderRadius: 10 }}>
             <Tag>WHY YOU GOT THIS</Tag>
             <div style={{ fontFamily: BL.sans, fontSize: 12, color: BL.muted, lineHeight: 1.55, marginTop: 6 }}>
               {userType
@@ -1075,7 +1264,7 @@ export default function HomePanel() {
                   You can donate again in {donor.daysUntilEligible} day{donor.daysUntilEligible !== 1 ? "s" : ""}
                 </div>
                 <div style={{ fontFamily: BL.sans, fontSize: 13, color: BL.muted, lineHeight: 1.5 }}>
-                  You're still within your 60-day rest window. But the need is real — get your friends to step up while you recover.
+                  You're still within your 84-day rest window. But the need is real — get your friends to step up while you recover.
                 </div>
               </div>
               <button
@@ -1112,7 +1301,7 @@ export default function HomePanel() {
                 {nearestSlot.startTime ? ` · ${nearestSlot.startTime}` : ""}
               </div>
               <button
-                onClick={() => setScreen("booking")}
+                onClick={() => onNavigate?.("drives")}
                 style={{
                   width: "100%", marginTop: 12, padding: "13px 0",
                   background: BL.ink, color: "#fff", border: "none", borderRadius: 8,
@@ -1122,7 +1311,7 @@ export default function HomePanel() {
                 Book a slot →
               </button>
               <button
-                onClick={() => setScreen("booking")}
+                onClick={() => onNavigate?.("drives")}
                 style={{ width: "100%", marginTop: 6, padding: "8px 0", background: "none", color: BL.muted, border: "none", fontFamily: BL.sans, fontSize: 13, cursor: "pointer" }}
               >
                 See other times
