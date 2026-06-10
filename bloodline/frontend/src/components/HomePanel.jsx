@@ -154,14 +154,31 @@ export default function HomePanel({ onNavigate }) {
   // the 30s poll doesn't fire a notification on every tick.
   const notifiedAlertIds = useRef(new Set());
 
-  function pushBrowserNotification(alert) {
-    if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
+  async function pushBrowserNotification(alert) {
+    if (typeof Notification === "undefined") return;
+    if (Notification.permission !== "granted") {
+      console.warn("[Surge] notification permission is", Notification.permission, "— no OS notification will show");
+      return;
+    }
     if (notifiedAlertIds.current.has(alert.alertId)) return;
     notifiedAlertIds.current.add(alert.alertId);
-    new Notification(`Surge alert — ${alert.bloodType} blood needed`, {
+
+    const title = `🩸 ${alert.bloodType} blood needed`;
+    const opts = {
       body: alert.message || `HSA is calling all eligible ${alert.bloodType} donors. Reserves are critically low.`,
       tag: alert.alertId,
-    });
+      icon: "/icon-192.png",
+      requireInteraction: true,
+    };
+    // Prefer the service worker (works on Android + desktop); fall back to the
+    // Notification constructor where no SW is controlling the page.
+    try {
+      const reg = navigator.serviceWorker && await navigator.serviceWorker.ready;
+      if (reg) reg.showNotification(title, opts);
+      else new Notification(title, opts);
+    } catch (e) {
+      try { new Notification(title, opts); } catch { console.warn("[Surge] notification failed:", e); }
+    }
   }
 
   function fetchSurge() {
