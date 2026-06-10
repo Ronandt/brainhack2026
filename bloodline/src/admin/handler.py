@@ -2,6 +2,7 @@ import json
 import os
 import urllib.error
 import urllib.request
+import uuid
 from datetime import datetime, timedelta, timezone
 
 import boto3
@@ -17,6 +18,7 @@ drives_table = dynamodb.Table(os.environ["BLOOD_DRIVES_TABLE"])
 alerts_table = dynamodb.Table(os.environ["ALERTS_TABLE"])
 blood_stock_table = dynamodb.Table(os.environ["BLOOD_STOCK_TABLE"])
 predictions_table = dynamodb.Table(os.environ["PREDICTIONS_TABLE"])
+notifs_table = dynamodb.Table(os.environ.get("NOTIFICATIONS_TABLE", f"bloodline-notifications-{os.environ.get('STAGE', 'dev')}"))
 
 ELIGIBILITY_DAYS = 56
 DORMANT_DAYS = 365
@@ -105,6 +107,9 @@ def _dispatch(event: dict) -> dict:
     if "/admin/drives/" in path and "/approve" in path and method == "POST":
         drive_id = path.split("/drives/")[1].split("/approve")[0]
         return _approve_drive(drive_id, event)
+    if "/admin/drives/" in path and "/notify-donor" in path and method == "POST":
+        drive_id = path.split("/drives/")[1].split("/notify-donor")[0]
+        return _notify_donor_of_src_rejection(drive_id)
     if "/admin/drives/" in path and "/reject" in path and method == "POST":
         drive_id = path.split("/drives/")[1].split("/reject")[0]
         return _reject_drive(drive_id)
@@ -165,6 +170,22 @@ def _donor_segments():
     return _response(200, {"segments": segments, "summary": summary, "total": len(donors)})
 
 
+def _write_notification(donor_id, notif_type, drive_id, drive_title, message, reason=""):
+    now = datetime.now(timezone.utc)
+    notifs_table.put_item(Item={
+        "donorId": donor_id,
+        "notifId": str(uuid.uuid4()),
+        "type": notif_type,
+        "driveId": drive_id,
+        "driveTitle": drive_title,
+        "message": message,
+        "reason": reason,
+        "read": False,
+        "createdAt": now.isoformat(),
+        "ttl": int(now.timestamp()) + 90 * 24 * 3600,
+    })
+
+
 def _pending_drives():
     result = drives_table.scan(
         FilterExpression=Attr("status").eq("pending_approval") | Attr("status").eq("redcross_rejected")
@@ -194,12 +215,22 @@ def _approve_drive(drive_id, event):
 
 
 def _reject_drive(drive_id):
+    result = drives_table.get_item(Key={"driveId": drive_id})
+    drive = result.get("Item", {})
+    creator_id = drive.get("createdBy")
+    drive_title = drive.get("name", "Your blood drive")
+
     drives_table.update_item(
         Key={"driveId": drive_id},
         UpdateExpression="SET #s = :s",
         ExpressionAttributeNames={"#s": "status"},
         ExpressionAttributeValues={":s": "rejected"},
     )
+    if creator_id:
+        _write_notification(
+            creator_id, "drive_rejected_hsa", drive_id, drive_title,
+            f"Your drive request \"{drive_title}\" was reviewed by HSA and could not be approved at this time.",
+        )
     return _response(200, {"driveId": drive_id, "status": "rejected"})
 
 
@@ -217,6 +248,11 @@ def _redcross_pending_drives():
 
 def _redcross_approve_drive(drive_id, event):
     approver = event["requestContext"]["authorizer"]["claims"]["sub"]
+    result = drives_table.get_item(Key={"driveId": drive_id})
+    drive = result.get("Item", {})
+    creator_id = drive.get("createdBy")
+    drive_title = drive.get("name", "Your blood drive")
+
     drives_table.update_item(
         Key={"driveId": drive_id},
         UpdateExpression="SET #s = :s, redCrossApprovedBy = :a, redCrossApprovedAt = :t REMOVE redCrossRejectedReason",
@@ -227,6 +263,11 @@ def _redcross_approve_drive(drive_id, event):
             ":t": datetime.now(timezone.utc).isoformat(),
         },
     )
+    if creator_id:
+        _write_notification(
+            creator_id, "drive_approved", drive_id, drive_title,
+            f"Great news! Your drive request \"{drive_title}\" has been fully approved by HSA and the Red Cross. It is now live.",
+        )
     logger.info("Drive approved by Red Cross", drive_id=drive_id, approver=approver)
     return _response(200, {"driveId": drive_id, "status": "upcoming"})
 
@@ -251,6 +292,27 @@ def _redcross_reject_drive(drive_id, event):
     )
     logger.info("Drive rejected by Red Cross", drive_id=drive_id, rejector=rejector)
     return _response(200, {"driveId": drive_id, "status": "redcross_rejected", "reason": reason})
+
+
+def _notify_donor_of_src_rejection(drive_id):
+    """HSA admin manually notifies the donor after reviewing a Red Cross rejection."""
+    result = drives_table.get_item(Key={"driveId": drive_id})
+    drive = result.get("Item", {})
+    creator_id = drive.get("createdBy")
+    if not creator_id:
+        return _response(404, {"error": "Drive not found or has no requesting donor"})
+    if drive.get("status") != "redcross_rejected":
+        return _response(400, {"error": "Drive is not in redcross_rejected state"})
+
+    drive_title = drive.get("name", "Your blood drive")
+    reason = drive.get("redCrossRejectedReason", "")
+    _write_notification(
+        creator_id, "drive_rejected_src", drive_id, drive_title,
+        f"HSA has reviewed your drive request \"{drive_title}\". Unfortunately the Red Cross was unable to approve it.",
+        reason=reason,
+    )
+    logger.info("Donor notified of Red Cross rejection", drive_id=drive_id, donor_id=creator_id)
+    return _response(200, {"notified": True, "driveId": drive_id, "donorId": creator_id})
 
 
 def _blood_stock_overview():

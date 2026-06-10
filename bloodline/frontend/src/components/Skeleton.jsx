@@ -191,7 +191,7 @@ export function DonorProfileSkeleton() {
       {/* Stats row */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, marginBottom: 16 }}>
         {[0, 1, 2].map(i => (
-          <div key={i} style={{ background: BL.card, borderRadius: 10, padding: 14 }}>
+          <div key={i} style={{ background: BL.card, borderRadius: 12, padding: 14, boxShadow: "0 1px 8px rgba(0,0,0,0.05), 0 0 0 1px rgba(0,0,0,0.04)" }}>
             <Skel w="50%" h={9} r={3} mb={6} delay={i * 0.07} />
             <Skel w="70%" h={22} r={5} delay={i * 0.07 + 0.05} />
           </div>
@@ -200,17 +200,17 @@ export function DonorProfileSkeleton() {
 
       {/* Form fields */}
       {[0, 1, 2].map(i => (
-        <div key={i} style={{ background: BL.card, borderRadius: 10, padding: 14, marginBottom: 10 }}>
+        <div key={i} style={{ background: BL.card, borderRadius: 14, padding: 14, marginBottom: 10, boxShadow: "0 1px 8px rgba(0,0,0,0.05), 0 0 0 1px rgba(0,0,0,0.04)" }}>
           <Skel w={80} h={9} r={3} mb={8} delay={i * 0.08} />
           <Skel w="80%" h={16} r={4} delay={i * 0.08 + 0.05} />
         </div>
       ))}
 
       {/* Notification rows */}
-      <div style={{ background: BL.card, borderRadius: 10, padding: 14, marginBottom: 10 }}>
+      <div style={{ background: BL.card, borderRadius: 14, padding: 14, marginBottom: 10, boxShadow: "0 1px 8px rgba(0,0,0,0.05), 0 0 0 1px rgba(0,0,0,0.04)" }}>
         <Skel w={90} h={9} r={3} mb={12} />
         {[0, 1, 2, 3].map(i => (
-          <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 0", borderTop: i > 0 ? `1px solid ${BL.hair}` : "none" }}>
+          <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 0", borderTop: i > 0 ? `1px solid ${BL.fill}` : "none" }}>
             <Skel w="50%" h={12} r={4} delay={i * 0.06} />
             <Skel w={50} h={12} r={4} delay={i * 0.06 + 0.05} />
           </div>
@@ -236,7 +236,7 @@ export function OverviewPanelSkeleton() {
         {/* KPI cards */}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 20 }}>
           {[0, 1, 2, 3].map(i => (
-            <div key={i} style={{ background: BL.card, border: `1px solid ${BL.hair}`, borderRadius: 6, padding: 14 }}>
+            <div key={i} style={{ background: BL.card, boxShadow: "0 1px 10px rgba(0,0,0,0.06), 0 0 0 1px rgba(0,0,0,0.04)", borderRadius: 14, padding: 14 }}>
               <Skel w="60%" h={9} r={3} mb={8} delay={i * 0.07} />
               <Skel w="50%" h={28} r={5} mb={6} delay={i * 0.07 + 0.05} />
               <Skel w="75%" h={9} r={3} delay={i * 0.07 + 0.1} />
@@ -245,11 +245,11 @@ export function OverviewPanelSkeleton() {
         </div>
 
         {/* Stock grid — 8 blood types */}
-        <div style={{ background: BL.card, border: `1px solid ${BL.hair}`, borderRadius: 6, padding: 14, marginBottom: 16 }}>
+        <div style={{ background: BL.card, boxShadow: "0 1px 10px rgba(0,0,0,0.06), 0 0 0 1px rgba(0,0,0,0.04)", borderRadius: 14, padding: 14, marginBottom: 16 }}>
           <Skel w={120} h={9} r={3} mb={12} />
           <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10 }}>
             {Array(8).fill(0).map((_, i) => (
-              <div key={i} style={{ background: BL.fill, borderRadius: 6, padding: "10px 12px" }}>
+              <div key={i} style={{ background: BL.fill, borderRadius: 10, padding: "10px 12px" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
                   <Skel w={32} h={14} r={4} delay={i * 0.05} />
                   <Skel w={50} h={18} r={4} delay={i * 0.05 + 0.05} />
@@ -261,25 +261,25 @@ export function OverviewPanelSkeleton() {
         </div>
 
         {/* Forecast chart area */}
-        <div style={{ background: BL.card, border: `1px solid ${BL.hair}`, borderRadius: 6, padding: 14, marginBottom: 16 }}>
+        <div style={{ background: BL.card, boxShadow: "0 1px 10px rgba(0,0,0,0.06), 0 0 0 1px rgba(0,0,0,0.04)", borderRadius: 14, padding: 14, marginBottom: 16 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
             <Skel w={160} h={9} r={3} />
             <div style={{ display: "flex", gap: 6 }}>
-              {Array(8).fill(0).map((_, i) => <Skel key={i} w={28} h={20} r={4} delay={i * 0.04} />)}
+              {Array(8).fill(0).map((_, i) => <Skel key={i} w={28} h={20} r={6} delay={i * 0.04} />)}
             </div>
           </div>
-          <Skel w="100%" h={210} r={6} delay={0.1} />
+          <Skel w="100%" h={210} r={10} delay={0.1} />
         </div>
 
         {/* Heatmap */}
-        <div style={{ background: BL.card, border: `1px solid ${BL.hair}`, borderRadius: 6, padding: 14 }}>
+        <div style={{ background: BL.card, boxShadow: "0 1px 10px rgba(0,0,0,0.06), 0 0 0 1px rgba(0,0,0,0.04)", borderRadius: 14, padding: 14 }}>
           <Skel w={100} h={9} r={3} mb={12} />
           <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
             {Array(8).fill(0).map((_, row) => (
               <div key={row} style={{ display: "grid", gridTemplateColumns: "48px repeat(14, 1fr)", gap: 3 }}>
-                <Skel w="100%" h={24} r={3} delay={row * 0.04} />
+                <Skel w="100%" h={24} r={4} delay={row * 0.04} />
                 {Array(14).fill(0).map((__, col) => (
-                  <Skel key={col} w="100%" h={24} r={3} delay={row * 0.04 + col * 0.01} />
+                  <Skel key={col} w="100%" h={24} r={4} delay={row * 0.04 + col * 0.01} />
                 ))}
               </div>
             ))}
@@ -288,7 +288,7 @@ export function OverviewPanelSkeleton() {
       </div>
 
       {/* Right rail */}
-      <div style={{ width: 300, borderLeft: `1px solid ${BL.hair}`, padding: "20px 18px", overflowY: "auto", flexShrink: 0 }}>
+      <div style={{ width: 300, borderLeft: "1px solid rgba(0,0,0,0.06)", padding: "20px 18px", overflowY: "auto", flexShrink: 0 }}>
         <Skel w={120} h={9} r={3} mb={14} />
         {[80, 60, 70, 55].map((w, i) => (
           <div key={i} style={{ marginBottom: 14 }}>
@@ -296,10 +296,10 @@ export function OverviewPanelSkeleton() {
             <Skel w="100%" h={4} r={2} delay={i * 0.08 + 0.05} />
           </div>
         ))}
-        <div style={{ height: 1, background: BL.hair, margin: "16px 0" }} />
+        <div style={{ height: 1, background: BL.fill, margin: "16px 0" }} />
         <Skel w={100} h={9} r={3} mb={12} />
         {[0, 1, 2].map(i => (
-          <div key={i} style={{ background: BL.fill, borderRadius: 6, padding: 12, marginBottom: 8 }}>
+          <div key={i} style={{ background: BL.fill, borderRadius: 10, padding: 12, marginBottom: 8 }}>
             <Skel w="70%" h={12} r={4} mb={6} delay={i * 0.08} />
             <Skel w="100%" h={4} r={2} delay={i * 0.08 + 0.05} />
           </div>
@@ -318,21 +318,21 @@ export function AdminSurgeSkeleton() {
       <Skel w={340} h={12} r={4} mb={24} delay={0.05} />
 
       {/* Blood type chips */}
-      <div style={{ background: BL.card, border: `1px solid ${BL.hair}`, borderRadius: 6, padding: 14, marginBottom: 14 }}>
+      <div style={{ background: BL.card, boxShadow: "0 1px 10px rgba(0,0,0,0.06), 0 0 0 1px rgba(0,0,0,0.04)", borderRadius: 14, padding: 14, marginBottom: 14 }}>
         <Skel w={80} h={9} r={3} mb={12} />
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           {Array(8).fill(0).map((_, i) => (
-            <Skel key={i} w={56} h={34} r={6} delay={i * 0.05} />
+            <Skel key={i} w={56} h={34} r={8} delay={i * 0.05} />
           ))}
         </div>
       </div>
 
       {/* Geo tier cards */}
-      <div style={{ background: BL.card, border: `1px solid ${BL.hair}`, borderRadius: 6, padding: 14, marginBottom: 14 }}>
+      <div style={{ background: BL.card, boxShadow: "0 1px 10px rgba(0,0,0,0.06), 0 0 0 1px rgba(0,0,0,0.04)", borderRadius: 14, padding: 14, marginBottom: 14 }}>
         <Skel w={60} h={9} r={3} mb={12} />
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
           {[0, 1, 2].map(i => (
-            <div key={i} style={{ border: `1px solid ${BL.hair}`, borderRadius: 6, padding: 14 }}>
+            <div key={i} style={{ boxShadow: "0 0 0 1px rgba(0,0,0,0.08)", borderRadius: 10, padding: 14 }}>
               <Skel w={40} h={40} r={8} mb={8} delay={i * 0.07} />
               <Skel w="70%" h={13} r={4} mb={4} delay={i * 0.07 + 0.05} />
               <Skel w="90%" h={9} r={3} delay={i * 0.07 + 0.1} />
@@ -342,13 +342,13 @@ export function AdminSurgeSkeleton() {
       </div>
 
       {/* Message field */}
-      <div style={{ background: BL.card, border: `1px solid ${BL.hair}`, borderRadius: 6, padding: 14, marginBottom: 14 }}>
+      <div style={{ background: BL.card, boxShadow: "0 1px 10px rgba(0,0,0,0.06), 0 0 0 1px rgba(0,0,0,0.04)", borderRadius: 14, padding: 14, marginBottom: 14 }}>
         <Skel w={110} h={9} r={3} mb={10} />
-        <Skel w="100%" h={72} r={4} delay={0.15} />
+        <Skel w="100%" h={72} r={10} delay={0.15} />
       </div>
 
       {/* Activate button */}
-      <Skel w="100%" h={48} r={6} delay={0.2} />
+      <Skel w="100%" h={48} r={10} delay={0.2} />
     </div>
   );
 }
@@ -364,7 +364,7 @@ export function MySlotsSkeletonPanel() {
       {/* Stats row */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, marginBottom: 24 }}>
         {[0, 1, 2].map(i => (
-          <div key={i} style={{ background: BL.card, border: `1px solid ${BL.hair}`, borderRadius: 6, padding: 14 }}>
+          <div key={i} style={{ background: BL.card, boxShadow: "0 1px 8px rgba(0,0,0,0.05), 0 0 0 1px rgba(0,0,0,0.04)", borderRadius: 12, padding: 14 }}>
             <Skel w="65%" h={9} r={3} mb={8} delay={i * 0.07} />
             <Skel w="50%" h={24} r={4} delay={i * 0.07 + 0.05} />
           </div>
@@ -373,7 +373,7 @@ export function MySlotsSkeletonPanel() {
 
       {/* Slot cards */}
       {[0, 1, 2].map(i => (
-        <div key={i} style={{ background: BL.card, border: `1px solid ${BL.hair}`, borderRadius: 6, padding: 18, marginBottom: 10 }}>
+        <div key={i} style={{ background: BL.card, boxShadow: "0 1px 10px rgba(0,0,0,0.06), 0 0 0 1px rgba(0,0,0,0.04)", borderRadius: 14, padding: 18, marginBottom: 10 }}>
           <Skel w="55%" h={15} r={4} mb={6} delay={i * 0.1} />
           <Skel w={180} h={10} r={3} mb={12} delay={i * 0.1 + 0.05} />
           <Skel w={70} h={20} r={3} mb={12} delay={i * 0.1 + 0.1} />
@@ -396,7 +396,7 @@ export function GenericPanelSkeleton({ rows = 3 }) {
       <Skel w={180} h={22} r={5} mb={6} />
       <Skel w={280} h={12} r={4} mb={24} delay={0.05} />
       {Array(rows).fill(0).map((_, i) => (
-        <div key={i} style={{ background: BL.card, border: `1px solid ${BL.hair}`, borderRadius: 6, padding: 16, marginBottom: 10 }}>
+        <div key={i} style={{ background: BL.card, boxShadow: "0 1px 10px rgba(0,0,0,0.06), 0 0 0 1px rgba(0,0,0,0.04)", borderRadius: 14, padding: 16, marginBottom: 10 }}>
           <Skel w="45%" h={14} r={4} mb={8} delay={i * 0.1} />
           <Skel w="70%" h={10} r={3} mb={6} delay={i * 0.1 + 0.05} />
           <Skel w="90%" h={10} r={3} delay={i * 0.1 + 0.1} />

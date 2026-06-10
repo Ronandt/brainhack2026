@@ -82,6 +82,60 @@ function TimelineNode({ dot, line, tag, answer, answerColor, sub, children, last
   );
 }
 
+function fmtTime12(hhmm) {
+  if (!hhmm) return null;
+  const [h, m] = hhmm.split(":").map(Number);
+  return `${h > 12 ? h - 12 : h || 12}:${String(m).padStart(2, "0")}${h >= 12 ? "pm" : "am"}`;
+}
+
+function NearestOptionCard({ slot, onNavigate }) {
+  const todayISO = new Date().toISOString().slice(0, 10);
+  const isToday  = slot.date === todayISO;
+  const isDrive  = slot._itemType === "drive";
+  const typeLabel = isDrive ? "Nearest drive" : "Nearest bloodbank";
+  const closesAt  = isToday ? fmtTime12(slot.endTime) : null;
+
+  return (
+    <div style={{ marginTop: 8, background: BL.card, borderRadius: 14, padding: 16, boxShadow: "0 1px 8px rgba(0,0,0,0.05), 0 0 0 1px rgba(0,0,0,0.04)" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
+        {slot._distanceKm != null && (
+          <Tag color={BL.red}>{typeLabel} · {formatDistance(slot._distanceKm)} away</Tag>
+        )}
+        {closesAt && (
+          <Tag color={BL.need.urgent.fg}>Closes {closesAt} · go now</Tag>
+        )}
+      </div>
+      <div style={{ fontFamily: BL.sans, fontSize: 14, color: BL.ink, fontWeight: 600 }}>
+        {slot.name || slot.location}
+      </div>
+      {slot.name && slot.location && (
+        <div style={{ fontFamily: BL.sans, fontSize: 12, color: BL.muted, marginTop: 1 }}>{slot.location}</div>
+      )}
+      <div style={{ fontFamily: BL.mono, fontSize: 10, color: BL.muted, marginTop: 3, letterSpacing: 0.3 }}>
+        {slot.date}
+        {slot.startTime ? ` · ${slot.startTime}` : ""}
+        {slot.endTime ? `–${slot.endTime}` : ""}
+      </div>
+      <button
+        onClick={() => onNavigate?.("drives")}
+        style={{
+          width: "100%", marginTop: 12, padding: "13px 0",
+          background: BL.ink, color: "#fff", border: "none", borderRadius: 12,
+          fontFamily: BL.sans, fontSize: 14, fontWeight: 600, cursor: "pointer", minHeight: 48,
+        }}
+      >
+        {isDrive ? "See drive details →" : "Book a slot →"}
+      </button>
+      <button
+        onClick={() => onNavigate?.("drives")}
+        style={{ width: "100%", marginTop: 6, padding: "8px 0", background: "none", color: BL.muted, border: "none", fontFamily: BL.sans, fontSize: 13, cursor: "pointer" }}
+      >
+        See all options
+      </button>
+    </div>
+  );
+}
+
 export default function HomePanel({ onNavigate }) {
   const [donor,             setDonor]             = useState(null);
   const [status,            setStatus]            = useState(null);
@@ -241,18 +295,41 @@ export default function HomePanel({ onNavigate }) {
   const typeStockItem = bloodStock.find(s => s.bloodType === userType);
   const typeNeed      = typeStockItem ? statusToNeed(typeStockItem.status) : "ok";
 
-  // Sort slots by distance from the donor (nearest first) when we know their
-  // location; otherwise keep server order. nearestSlot.{_distanceKm} drives the
-  // "WHEN CAN I GO?" card.
-  const slotsByDistance = userCoords
-    ? slots
-        .map(s => {
-          const c = resolveCoords(s);
-          return { ...s, _distanceKm: c ? haversineKm(userCoords.lat, userCoords.lng, c.lat, c.lng) : null };
-        })
-        .sort((a, b) => (a._distanceKm ?? Infinity) - (b._distanceKm ?? Infinity))
-    : slots.map(s => ({ ...s, _distanceKm: null }));
-  const nearestSlot = slotsByDistance[0] ?? null;
+  // Filter function: item must be today or later, and if today must close ≥2h from now, and not full.
+  function isAvailableWithBuffer(item) {
+    const now = new Date();
+    const todayISO = [
+      now.getFullYear(),
+      String(now.getMonth() + 1).padStart(2, "0"),
+      String(now.getDate()).padStart(2, "0"),
+    ].join("-");
+    if (!item.date || item.date < todayISO) return false;
+    if (item.date === todayISO && item.endTime) {
+      const [endH, endM] = item.endTime.split(":").map(Number);
+      if ((endH * 60 + endM) - (now.getHours() * 60 + now.getMinutes()) < 120) return false;
+    }
+    if (item.capacity > 0 && (item.booked ?? 0) >= item.capacity) return false;
+    return true;
+  }
+
+  // Merge slots + approved drives, filter for availability + 2h buffer, sort nearest first.
+  const nearestSlot = [
+    ...slots.map(s => ({ ...s, _itemType: "slot" })),
+    ...drives
+      .filter(d => !["rejected", "redcross_rejected", "cancelled"].includes(d.status))
+      .map(d => ({ ...d, _itemType: "drive" })),
+  ]
+    .filter(isAvailableWithBuffer)
+    .map(item => {
+      const c = resolveCoords(item);
+      return {
+        ...item,
+        _distanceKm: userCoords && c
+          ? haversineKm(userCoords.lat, userCoords.lng, c.lat, c.lng)
+          : null,
+      };
+    })
+    .sort((a, b) => (a._distanceKm ?? Infinity) - (b._distanceKm ?? Infinity))[0] ?? null;
 
   // 14-day forecast scoped to the donor's own blood type, so they can plan ahead
   useEffect(() => {
@@ -1345,39 +1422,7 @@ export default function HomePanel({ onNavigate }) {
               </button>
             </div>
           ) : nearestSlot ? (
-            <div style={{ marginTop: 8, background: BL.card, borderRadius: 14, padding: 16, boxShadow: "0 1px 8px rgba(0,0,0,0.05), 0 0 0 1px rgba(0,0,0,0.04)" }}>
-              {nearestSlot._distanceKm != null && (
-                <div style={{ marginBottom: 4 }}><Tag color={BL.red}>Nearest bloodbank · {formatDistance(nearestSlot._distanceKm)} away</Tag></div>
-              )}
-              <div style={{ fontFamily: BL.sans, fontSize: 14, color: BL.ink, fontWeight: 600 }}>
-                {nearestSlot.name || nearestSlot.location}
-              </div>
-              {nearestSlot.name && nearestSlot.location && (
-                <div style={{ fontFamily: BL.sans, fontSize: 12, color: BL.muted, marginTop: 1 }}>
-                  {nearestSlot.location}
-                </div>
-              )}
-              <div style={{ fontFamily: BL.mono, fontSize: 10, color: BL.muted, marginTop: 3, letterSpacing: 0.3 }}>
-                {nearestSlot.date}
-                {nearestSlot.startTime ? ` · ${nearestSlot.startTime}` : ""}
-              </div>
-              <button
-                onClick={() => onNavigate?.("drives")}
-                style={{
-                  width: "100%", marginTop: 12, padding: "13px 0",
-                  background: BL.ink, color: "#fff", border: "none", borderRadius: 12,
-                  fontFamily: BL.sans, fontSize: 14, fontWeight: 600, cursor: "pointer", minHeight: 48,
-                }}
-              >
-                Book a slot →
-              </button>
-              <button
-                onClick={() => onNavigate?.("drives")}
-                style={{ width: "100%", marginTop: 6, padding: "8px 0", background: "none", color: BL.muted, border: "none", fontFamily: BL.sans, fontSize: 13, cursor: "pointer" }}
-              >
-                See other times
-              </button>
-            </div>
+            <NearestOptionCard slot={nearestSlot} onNavigate={onNavigate} />
           ) : (
             <div style={{ fontFamily: BL.sans, fontSize: 13, color: BL.muted, marginTop: 6 }}>
               No slots listed yet — check the Drives tab.

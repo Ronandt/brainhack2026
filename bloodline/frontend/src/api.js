@@ -68,6 +68,7 @@ export const cancelSlotBooking = (slotId) =>
 // Blood drives — hospital creates, admin approves
 export const createDrive = (body) =>
   request("/api/v1/schedule/drives", { method: "POST", body: JSON.stringify(body) });
+export const getMyDrives = () => request("/api/v1/schedule/my-drives");
 export const getHospitalDrives = () => request("/api/v1/hospital/drives");
 export const lookupDonor = (donorId) => request(`/api/v1/hospital/donor?donorId=${encodeURIComponent(donorId)}`);
 export const recordDonation = (body) =>
@@ -89,6 +90,8 @@ export const getDonorSegments = () => request("/api/v1/admin/donors/segments");
 export const getPendingDrives = () => request("/api/v1/admin/drives/pending");
 export const approveDrive = (driveId) => request(`/api/v1/admin/drives/${driveId}/approve`, { method: "POST" });
 export const rejectDrive = (driveId) => request(`/api/v1/admin/drives/${driveId}/reject`, { method: "POST" });
+export const notifyDonorOfRejection = (driveId) =>
+  request(`/api/v1/admin/drives/${driveId}/notify-donor`, { method: "POST" });
 export const getRedCrossPendingDrives = () => request("/api/v1/redcross/drives/pending");
 export const approveRedCrossDrive = (driveId) => request(`/api/v1/redcross/drives/${driveId}/approve`, { method: "POST" });
 export const rejectRedCrossDrive = (driveId, reason) =>
@@ -98,3 +101,8 @@ export const getAllAlerts = () => request("/api/v1/admin/alerts");
 export const getTrafficIncidents = () => request("/api/v1/admin/traffic-incidents");
 export const submitHospitalDemand = (body) =>
   request("/api/v1/admin/demand", { method: "POST", body: JSON.stringify(body) });
+
+// Donor notifications
+export const getNotifications = () => request("/api/v1/donor/notifications");
+export const markNotificationRead = (notifId) =>
+  request(`/api/v1/donor/notifications/${notifId}/read`, { method: "POST" });
