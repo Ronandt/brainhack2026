@@ -9,8 +9,7 @@ import AdminSurgePanel from "./admin/SurgePanel";
 import DrivesPanel from "./admin/DrivesPanel";
 import DonorsPanel from "./admin/DonorsPanel";
 import DemandPanel from "./admin/DemandPanel";
-import MySlotsPanel from "./hospital/MySlotsPanel";
-import CreateSlotPanel from "./hospital/CreateSlotPanel";
+import ManageSlotsPanel from "./hospital/ManageSlotsPanel";
 import CheckinPanel from "./hospital/CheckinPanel";
 import SetupLocationPanel from "./hospital/SetupLocationPanel";
 import AdminProfilePanel from "./admin/AdminProfilePanel";
@@ -39,9 +38,24 @@ function isAdmin(token) {
   return decodeGroups(token).includes("HSAAdmin");
 }
 
-function isHospital(token) {
-  return decodeGroups(token).includes("HospitalStaff");
+function isBloodBank(token) {
+  return decodeGroups(token).includes("BloodBank");
 }
+
+function isHospital(token) {
+  return decodeGroups(token).includes("RedCrossSG");
+}
+
+const HSA_BLUE = "#4a6fa5";
+const SRC_RED  = BL.red;
+
+const SG_BLOODBANKS = [
+  "Bloodbank@HSA",
+  "Bloodbank@Dhoby Ghaut",
+  "Bloodbank@Woodlands",
+  "Bloodbank@Westgate",
+  "Bloodbank@One Punggol",
+];
 
 const DONOR_TABS = [
   { id: "home",    label: "Home" },
@@ -58,10 +72,14 @@ const ADMIN_TABS = [
   { id: "demand",   label: "Hospital demand" },
 ];
 
-const HOSPITAL_TABS = [
-  { id: "hslots",   label: "My Slots" },
-  { id: "hcreate",  label: "Create Slot" },
-  { id: "hcheckin", label: "Check-in" },
+const BLOODBANK_TABS = [
+  { id: "bbmanage",  label: "Manage Slots" },
+  { id: "bbcheckin", label: "Check-in" },
+];
+
+const SRC_TABS = [
+  { id: "srcmanage",  label: "Manage Slots" },
+  { id: "srccheckin", label: "Check-in" },
 ];
 
 function PanelContent({ tab, onLogout, hospitalName }) {
@@ -73,12 +91,99 @@ function PanelContent({ tab, onLogout, hospitalName }) {
   if (tab === "asurge")   return <AdminSurgePanel />;
   if (tab === "adrives")  return <DrivesPanel />;
   if (tab === "donors")   return <DonorsPanel />;
-  if (tab === "demand")    return <DemandPanel />;
-  if (tab === "aprofile")  return <AdminProfilePanel />;
-  if (tab === "hslots")    return <MySlotsPanel />;
-  if (tab === "hcreate")   return <CreateSlotPanel hospitalName={hospitalName} />;
-  if (tab === "hcheckin")  return <CheckinPanel />;
+  if (tab === "demand")     return <DemandPanel />;
+  if (tab === "aprofile")   return <AdminProfilePanel />;
+  if (tab === "bbmanage")   return <ManageSlotsPanel locations={SG_BLOODBANKS} />;
+  if (tab === "bbcheckin")  return <CheckinPanel />;
+  if (tab === "srcmanage")  return <ManageSlotsPanel locationName={hospitalName ?? "Singapore Red Cross"} />;
+  if (tab === "srccheckin") return <CheckinPanel />;
   return null;
+}
+
+// ── BloodBank layout (under HSA umbrella, blue accent, 2 tabs) ──────────────
+function BloodBankDashboard({ tab, setTab, onLogout }) {
+  const activeLabel = BLOODBANK_TABS.find(t => t.id === tab)?.label ?? "";
+
+  return (
+    <div style={{ display: "flex", minHeight: "100vh", fontFamily: BL.sans }}>
+      <div style={{
+        width: 200, background: "#1a1917", color: "#e9e6e0",
+        display: "flex", flexDirection: "column", flexShrink: 0,
+      }}>
+        <div style={{ padding: "18px 16px 12px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <div style={{ width: 18, height: 18, borderRadius: 3, background: HSA_BLUE }} />
+            <span style={{ fontFamily: BL.sans, fontSize: 14, fontWeight: 600 }}>BloodLine</span>
+          </div>
+          <div style={{ fontFamily: BL.mono, fontSize: 9, color: "#8e8a82", marginTop: 4, letterSpacing: 0.8 }}>
+            HSA BLOODBANK · PROD
+          </div>
+        </div>
+
+        <div style={{ padding: "8px", flex: 1 }}>
+          {BLOODBANK_TABS.map(t => (
+            <button
+              key={t.id}
+              onClick={() => setTab(t.id)}
+              style={{
+                display: "block", width: "100%", textAlign: "left",
+                padding: "8px 12px", borderRadius: 4, marginBottom: 2, cursor: "pointer",
+                background: tab === t.id ? "#2a2723" : "transparent",
+                fontFamily: BL.sans, fontSize: 13, border: "none",
+                color: tab === t.id ? "#fff" : "#bdb8b0",
+                borderLeft: tab === t.id ? `2px solid ${HSA_BLUE}` : "2px solid transparent",
+              }}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        <div style={{ padding: "12px 16px", borderTop: "1px solid #2a2723" }}>
+          <div style={{ fontFamily: BL.mono, fontSize: 9, color: "#8e8a82", marginBottom: 8, letterSpacing: 0.8 }}>
+            HSA BLOODBANK · PROD
+          </div>
+          <button
+            onClick={onLogout}
+            style={{
+              width: "100%", background: "none", border: "1px solid #2a2723",
+              color: "#8e8a82", borderRadius: 6, padding: "6px 0",
+              cursor: "pointer", fontSize: 12, fontFamily: BL.sans,
+            }}
+          >
+            Sign out
+          </button>
+        </div>
+      </div>
+
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
+        <div style={{
+          height: 48, borderBottom: `1px solid ${BL.hair}`,
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          padding: "0 24px", background: BL.card, flexShrink: 0,
+        }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+            <span style={{ fontFamily: BL.mono, fontSize: 10, color: BL.muted, letterSpacing: 0.8 }}>
+              HSA BLOODBANK
+            </span>
+            <span style={{ color: BL.faint }}>/</span>
+            <span style={{ fontFamily: BL.mono, fontSize: 10, color: BL.ink }}>
+              {activeLabel.toUpperCase()}
+            </span>
+          </div>
+          <span style={{ fontFamily: BL.sans, fontSize: 12, color: BL.muted }}>
+            {new Date().toLocaleString("en-SG", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
+          </span>
+        </div>
+
+        <div style={{ flex: 1, overflowY: "auto", background: BL.paper }}>
+          <div style={{ maxWidth: 1100, padding: 24 }}>
+            <PanelContent tab={tab} hospitalName="HSA Bloodbank" />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 // ── Admin layout: dark left sidebar + light content (mirrors ConsoleShell) ──
@@ -105,7 +210,7 @@ function AdminDashboard({ tab, setTab, onLogout }) {
       }}>
         <div style={{ padding: "18px 16px 12px" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <div style={{ width: 18, height: 18, borderRadius: 3, background: BL.red }} />
+            <div style={{ width: 18, height: 18, borderRadius: 3, background: HSA_BLUE }} />
             <span style={{ fontFamily: BL.sans, fontSize: 14, fontWeight: 600 }}>BloodLine</span>
           </div>
           <div style={{ fontFamily: BL.mono, fontSize: 9, color: "#8e8a82", marginTop: 4, letterSpacing: 0.8 }}>
@@ -124,7 +229,7 @@ function AdminDashboard({ tab, setTab, onLogout }) {
                 background: tab === t.id ? "#2a2723" : "transparent",
                 fontFamily: BL.sans, fontSize: 13, border: "none",
                 color: tab === t.id ? "#fff" : "#bdb8b0",
-                borderLeft: tab === t.id ? `2px solid ${BL.red}` : "2px solid transparent",
+                borderLeft: tab === t.id ? `2px solid ${HSA_BLUE}` : "2px solid transparent",
               }}
             >
               {t.label}
@@ -224,14 +329,21 @@ function useIsMobile() {
 }
 
 // Shared tab icon (square with rounded corners, matching prototype)
-function TabIcon({ active }) {
+// Per-tab line icons for the donor nav (home / book / impact / you)
+function NavIcon({ id, active, size = 20 }) {
+  const color = active ? BL.ink : BL.muted;
+  const p = {
+    home:    <><path d="M3 10.5 12 3l9 7.5" /><path d="M5 9.5V21h14V9.5" /><path d="M9.5 21v-6h5v6" /></>,
+    drives:  <><rect x="3.5" y="5" width="17" height="16" rx="2" /><path d="M3.5 9.5h17" /><path d="M8 3v4M16 3v4" /></>,
+    impact:  <path d="M12 20.5C7 17 3.5 13.8 3.5 9.8 3.5 7.1 5.6 5 8.2 5c1.7 0 3 .9 3.8 2.2C12.8 5.9 14.1 5 15.8 5c2.6 0 4.7 2.1 4.7 4.8 0 4-3.5 7.2-8.5 10.7Z" />,
+    profile: <><circle cx="12" cy="8" r="3.5" /><path d="M5 20c0-3.5 3.1-6 7-6s7 2.5 7 6" /></>,
+  };
   return (
-    <div style={{
-      width: 22, height: 22, margin: "0 auto 3px",
-      borderRadius: 5,
-      border: `1.5px solid ${active ? BL.ink : BL.faint}`,
-      background: active ? BL.ink : "transparent",
-    }} />
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+      stroke={color} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"
+      style={{ display: "block" }}>
+      {p[id] ?? p.home}
+    </svg>
   );
 }
 
@@ -284,11 +396,7 @@ function DonorDesktopLayout({ tab, setTab, onLogout }) {
                 borderLeft: tab === t.id ? `2px solid ${BL.red}` : "2px solid transparent",
               }}
             >
-              <div style={{
-                width: 16, height: 16, borderRadius: 3, flexShrink: 0,
-                border: `1.5px solid ${tab === t.id ? BL.ink : BL.faint}`,
-                background: tab === t.id ? BL.ink : "transparent",
-              }} />
+              <NavIcon id={t.id} active={tab === t.id} size={17} />
               {t.label}
             </button>
           ))}
@@ -374,7 +482,9 @@ function DonorMobileLayout({ tab, setTab, onLogout }) {
                 cursor: "pointer", padding: "6px 0",
               }}
             >
-              <TabIcon active={active} />
+              <div style={{ display: "flex", justifyContent: "center", marginBottom: 3 }}>
+                <NavIcon id={t.id} active={active} size={22} />
+              </div>
               <div style={{
                 fontFamily: BL.sans, fontSize: 10, fontWeight: 500,
                 color: active ? BL.ink : BL.faint,
@@ -389,12 +499,11 @@ function DonorMobileLayout({ tab, setTab, onLogout }) {
   );
 }
 
-// ── Hospital layout: same dark sidebar as admin ──────────────────────────────
-function HospitalDashboard({ tab, setTab, onLogout }) {
+// ── Singapore Red Cross layout: red accent, 2 tabs (Manage Slots + Check-in) ─
+function SRCDashboard({ tab, setTab, onLogout }) {
   const [location, setLocation] = useState(null);
   const [locationLoading, setLocationLoading] = useState(true);
-  const activeLabel = HOSPITAL_TABS.find(t => t.id === tab)?.label ?? "";
-  const ACCENT = "#2563a8";
+  const activeLabel = SRC_TABS.find(t => t.id === tab)?.label ?? "";
 
   useEffect(() => {
     getHospitalProfile()
@@ -410,16 +519,16 @@ function HospitalDashboard({ tab, setTab, onLogout }) {
     }}>
       <div style={{ padding: "18px 16px 12px" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <div style={{ width: 18, height: 18, borderRadius: 3, background: ACCENT }} />
+          <div style={{ width: 18, height: 18, borderRadius: 3, background: SRC_RED }} />
           <span style={{ fontFamily: BL.sans, fontSize: 14, fontWeight: 600 }}>BloodLine</span>
         </div>
         <div style={{ fontFamily: BL.mono, fontSize: 9, color: "#8e8a82", marginTop: 4, letterSpacing: 0.8 }}>
-          HOSPITAL PORTAL · PROD
+          RED CROSS SINGAPORE · PROD
         </div>
       </div>
 
       <div style={{ padding: "8px", flex: 1 }}>
-        {HOSPITAL_TABS.map(t => (
+        {SRC_TABS.map(t => (
           <button
             key={t.id}
             onClick={() => setTab(t.id)}
@@ -429,7 +538,7 @@ function HospitalDashboard({ tab, setTab, onLogout }) {
               background: tab === t.id ? "#2a2723" : "transparent",
               fontFamily: BL.sans, fontSize: 13, border: "none",
               color: tab === t.id ? "#fff" : "#bdb8b0",
-              borderLeft: tab === t.id ? `2px solid ${ACCENT}` : "2px solid transparent",
+              borderLeft: tab === t.id ? `2px solid ${SRC_RED}` : "2px solid transparent",
             }}
           >
             {t.label}
@@ -439,7 +548,7 @@ function HospitalDashboard({ tab, setTab, onLogout }) {
 
       <div style={{ padding: "12px 16px", borderTop: "1px solid #2a2723" }}>
         <div style={{ fontFamily: BL.mono, fontSize: 9, color: "#8e8a82", marginBottom: 8, letterSpacing: 0.8 }}>
-          {location ?? "HOSPITAL STAFF"} · PROD
+          {location ?? "SRC STAFF"} · PROD
         </div>
         <button
           onClick={onLogout}
@@ -481,9 +590,7 @@ function HospitalDashboard({ tab, setTab, onLogout }) {
     <div style={{ display: "flex", minHeight: "100vh", fontFamily: BL.sans }}>
       {sidebar}
 
-      {/* Main content */}
       <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
-        {/* Top header bar */}
         <div style={{
           height: 48, borderBottom: `1px solid ${BL.hair}`,
           display: "flex", alignItems: "center", justifyContent: "space-between",
@@ -491,7 +598,7 @@ function HospitalDashboard({ tab, setTab, onLogout }) {
         }}>
           <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
             <span style={{ fontFamily: BL.mono, fontSize: 10, color: BL.muted, letterSpacing: 0.8 }}>
-              HOSPITAL PORTAL
+              RED CROSS SINGAPORE
             </span>
             <span style={{ color: BL.faint }}>/</span>
             <span style={{ fontFamily: BL.mono, fontSize: 10, color: BL.ink }}>
@@ -503,7 +610,6 @@ function HospitalDashboard({ tab, setTab, onLogout }) {
           </span>
         </div>
 
-        {/* Panel content */}
         <div style={{ flex: 1, overflowY: "auto", background: BL.paper }}>
           <div style={{ maxWidth: 1100, padding: 24 }}>
             <PanelContent tab={tab} hospitalName={location} />
@@ -515,12 +621,14 @@ function HospitalDashboard({ tab, setTab, onLogout }) {
 }
 
 export default function Dashboard({ token, onLogout }) {
-  const admin    = isAdmin(token);
-  const hospital = !admin && isHospital(token);
-  const tabs = admin ? ADMIN_TABS : hospital ? HOSPITAL_TABS : DONOR_TABS;
+  const admin     = isAdmin(token);
+  const bloodBank = !admin && isBloodBank(token);
+  const hospital  = !admin && !bloodBank && isHospital(token);
+  const tabs = admin ? ADMIN_TABS : bloodBank ? BLOODBANK_TABS : hospital ? SRC_TABS : DONOR_TABS;
   const [tab, setTab] = useState(tabs[0].id);
 
-  if (admin)    return <AdminDashboard    tab={tab} setTab={setTab} onLogout={onLogout} />;
-  if (hospital) return <HospitalDashboard tab={tab} setTab={setTab} onLogout={onLogout} />;
+  if (admin)     return <AdminDashboard     tab={tab} setTab={setTab} onLogout={onLogout} />;
+  if (bloodBank) return <BloodBankDashboard tab={tab} setTab={setTab} onLogout={onLogout} />;
+  if (hospital)  return <SRCDashboard       tab={tab} setTab={setTab} onLogout={onLogout} />;
   return <DonorDashboard tab={tab} setTab={setTab} onLogout={onLogout} />;
 }

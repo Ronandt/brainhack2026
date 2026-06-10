@@ -19,6 +19,10 @@ def _donor_id_from_event(event: dict) -> str:
     return event["requestContext"]["authorizer"]["claims"]["sub"]
 
 
+def _email_from_event(event: dict) -> str | None:
+    return event["requestContext"]["authorizer"]["claims"].get("email")
+
+
 def _compute_eligibility(last_donated_at: str | None) -> dict:
     if not last_donated_at:
         return {"eligible": True, "daysUntilEligible": 0, "nextEligibleDate": None}
@@ -47,22 +51,33 @@ def _response(status_code: int, body: dict) -> dict:
 def lambda_handler(event: dict, context: LambdaContext) -> dict:
     method = event["httpMethod"]
     donor_id = _donor_id_from_event(event)
+    email = _email_from_event(event)
 
     if method == "GET":
-        return _get_donor(donor_id)
+        return _get_donor(donor_id, email)
     if method == "PUT":
         body = json.loads(event.get("body") or "{}")
-        return _update_donor(donor_id, body)
+        return _update_donor(donor_id, body, email)
 
     return _response(405, {"error": "Method not allowed"})
 
 
-def _get_donor(donor_id: str) -> dict:
+def _get_donor(donor_id: str, email: str | None = None) -> dict:
     result = donors_table.get_item(Key={"donorId": donor_id})
     donor = result.get("Item")
 
     if not donor:
         return _response(404, {"error": "Donor profile not found"})
+
+    # Backfill the donor's email from their Cognito identity so surge alerts can
+    # reach them, even for profiles created before email was captured.
+    if email and donor.get("email") != email:
+        donors_table.update_item(
+            Key={"donorId": donor_id},
+            UpdateExpression="SET email = :e",
+            ExpressionAttributeValues={":e": email},
+        )
+        donor["email"] = email
 
     eligibility = _compute_eligibility(donor.get("lastDonatedAt"))
     donor.update(eligibility)
@@ -79,9 +94,14 @@ def _get_donor(donor_id: str) -> dict:
     return _response(200, donor)
 
 
-def _update_donor(donor_id: str, body: dict) -> dict:
-    allowed_fields = {"name", "bloodType", "postalCode", "pushToken", "lastDonatedAt", "department", "phone"}
+def _update_donor(donor_id: str, body: dict, email: str | None = None) -> dict:
+    allowed_fields = {"name", "bloodType", "postalCode", "pushToken", "lastDonatedAt", "department", "phone", "email"}
     updates = {k: v for k, v in body.items() if k in allowed_fields}
+
+    # Always keep the donor's contact email in sync with their Cognito identity
+    # so surge alerts can reach them, even if the client didn't send it.
+    if email:
+        updates.setdefault("email", email)
 
     if not updates:
         return _response(400, {"error": "No valid fields to update"})

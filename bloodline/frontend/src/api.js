@@ -24,7 +24,7 @@ async function request(path, options = {}) {
 // Predict
 export const getStatus = () => request("/api/v1/predict/status");
 export const getForecast = (bloodType) =>
-  request("/api/v1/predict/forecast" + (bloodType ? "?bloodType=" + bloodType : ""));
+  request("/api/v1/predict/forecast" + (bloodType ? "?bloodType=" + encodeURIComponent(bloodType) : ""));
 
 // Donors
 export const getDonor = () => request("/api/v1/donors/me");
@@ -40,7 +40,7 @@ export const endSurge = (alertId) =>
 
 // Schedule
 export const getDrives = (bloodType) =>
-  request("/api/v1/schedule/drives" + (bloodType ? "?bloodType=" + bloodType : ""));
+  request("/api/v1/schedule/drives" + (bloodType ? "?bloodType=" + encodeURIComponent(bloodType) : ""));
 export const getMyBookings = () => request("/api/v1/schedule/bookings");
 export const createBooking = (body) =>
   request("/api/v1/schedule/book", { method: "POST", body: JSON.stringify(body) });
@@ -55,10 +55,13 @@ export const updateHospitalProfile = (body) =>
 export const createSlot = (body) =>
   request("/api/v1/hospital/slots", { method: "POST", body: JSON.stringify(body) });
 export const getHospitalSlots = () => request("/api/v1/hospital/slots");
+export const getSlotBookings = (slotId) => request(`/api/v1/hospital/slots?slotId=${encodeURIComponent(slotId)}`);
 export const getSlots = (bloodType) =>
-  request("/api/v1/slots" + (bloodType ? `?bloodType=${bloodType}` : ""));
+  request("/api/v1/slots" + (bloodType ? `?bloodType=${encodeURIComponent(bloodType)}` : ""));
 export const bookSlot = (slotId) =>
   request(`/api/v1/slots/${slotId}/book`, { method: "POST" });
+export const cancelSlotBooking = (slotId) =>
+  request(`/api/v1/slots/${slotId}/book`, { method: "DELETE" });
 
 // Blood drives — hospital creates, admin approves
 export const createDrive = (body) =>
@@ -86,5 +89,6 @@ export const approveDrive = (driveId) => request(`/api/v1/admin/drives/${driveId
 export const rejectDrive = (driveId) => request(`/api/v1/admin/drives/${driveId}/reject`, { method: "POST" });
 export const getStockOverview = () => request("/api/v1/admin/stock");
 export const getAllAlerts = () => request("/api/v1/admin/alerts");
+export const getTrafficIncidents = () => request("/api/v1/admin/traffic-incidents");
 export const submitHospitalDemand = (body) =>
   request("/api/v1/admin/demand", { method: "POST", body: JSON.stringify(body) });

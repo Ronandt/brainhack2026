@@ -1,6 +1,11 @@
 import { useState, useEffect, useMemo, useRef } from "react";
+<<<<<<< HEAD
 import { getDrives, getSlots, createBooking, bookSlot, getMyBookings, createDrive } from "../api";
+=======
+import { getDrives, getSlots, createBooking, bookSlot, cancelSlotBooking, getMyBookings } from "../api";
+>>>>>>> 6c9b789c6479cf924cf8be3c9f073dc88c398e87
 import { BL } from "../tokens";
+import { BLOODBANK_COORDS, haversineKm, resolveCoords } from "../geo";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -27,14 +32,8 @@ const TYPE_BADGE = {
   slot:  { label: "BLOODBANK", bg: "#e0eeff", fg: "#1a5cbf" },
 };
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
 
-function haversineKm(lat1, lon1, lat2, lon2) {
-  const R = 6371, r = Math.PI / 180;
-  const dLat = (lat2 - lat1) * r, dLon = (lon2 - lon1) * r;
-  const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * r) * Math.cos(lat2 * r) * Math.sin(dLon / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 function pickRandom(items) { return items[Math.floor(Math.random() * items.length)]; }
 function coordLabel(lat, lng) { return `${lat.toFixed(5)}, ${lng.toFixed(5)}`; }
@@ -210,7 +209,7 @@ function MapcnLocationMap({ location, onSelect }) {
 
 function SquadRsvpModal({ item, onClose }) {
   const [copied, setCopied] = useState(false);
-  const msg = `Hey squad! Let's donate blood together 🩸\n\n${item.name ?? item.location}\n${item.date}${item.startTime ? ` · ${item.startTime}` : ""}\n${item.location}\n\nRSVP here: <link>`;
+  const msg = `Hey squad! Let's donate blood together 🩸\n\n${item.name || item.location}\n${item.date}${item.startTime ? ` · ${item.startTime}` : ""}\n${item.location}\n\nRSVP here: <link>`;
 
   function share() {
     if (navigator.share) {
@@ -615,19 +614,39 @@ export default function DonorDrivesPanel() {
   const [locationFilter, setLocationFilter] = useState("all"); // "all" | "nearby"
   const [userCoords,   setUserCoords]   = useState(null);
   const [locError,     setLocError]     = useState("");
+  const [geoCache,     setGeoCache]     = useState({}); // location name → {lat,lng} | null
   const [bookingState, setBookingState] = useState({});
-  const [bookedId,     setBookedId]     = useState(null);
+  const [booked,       setBooked]       = useState({}); // { [id]: "slot" | "drive" } — ALL of the donor's active bookings
   const [squadItem,    setSquadItem]    = useState(null);
 
   useEffect(() => {
     loadAll();
+    refreshBookings();
+    // Quietly grab the donor's location so sessions sort by proximity by default.
+    // If denied/unavailable, the list just falls back to date order.
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        pos => setUserCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+        () => {},
+        { enableHighAccuracy: false, timeout: 8000, maximumAge: 300000 }
+      );
+    }
+  }, []);
+
+  // Track every booking the donor has, not just the first — otherwise already-booked
+  // slots show "Book" and the server rejects with 409 "you already have a booking".
+  function refreshBookings() {
     getMyBookings()
       .then(d => {
-        const b = d.bookings?.[0];
-        if (b) setBookedId(b.driveId ?? b.slotId ?? null);
+        const map = {};
+        (d.bookings ?? []).forEach(b => {
+          const id = b.slotId ?? b.driveId;
+          if (id) map[id] = b.slotId ? "slot" : "drive";
+        });
+        setBooked(map);
       })
       .catch(() => {});
-  }, []);
+  }
 
   async function loadAll() {
     setLoading(true); setError("");
@@ -649,6 +668,34 @@ export default function DonorDrivesPanel() {
     }
   }
 
+  // Geocode drive location names (those not already placed by lat/lng or a known
+  // blood bank) so drives also get a distance and sort by proximity.
+  useEffect(() => {
+    const pending = [...new Set(
+      items
+        .filter(it => it.location && it.lat == null && it.lng == null && !BLOODBANK_COORDS[it.location])
+        .map(it => it.location)
+    )].filter(loc => !(loc in geoCache));
+    if (pending.length === 0) return;
+
+    let cancelled = false;
+    (async () => {
+      for (const loc of pending) {
+        try {
+          const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=sg&q=${encodeURIComponent(loc)}`);
+          const data = res.ok ? await res.json() : [];
+          if (cancelled) return;
+          const hit = data[0];
+          setGeoCache(prev => ({ ...prev, [loc]: hit ? { lat: Number(hit.lat), lng: Number(hit.lon) } : null }));
+        } catch {
+          if (cancelled) return;
+          setGeoCache(prev => ({ ...prev, [loc]: null }));
+        }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [items, geoCache]);
+
   function requestNearby() {
     if (!navigator.geolocation) { setLocError("Geolocation not supported by your browser."); return; }
     setLocError("");
@@ -667,9 +714,29 @@ export default function DonorDrivesPanel() {
     ? items
     : items.filter(item => item._type === sessionTab);
 
-  const displayItems = locationFilter === "nearby" && userCoords
-    ? tabItems.filter(item => item.lat != null && item.lng != null && haversineKm(userCoords.lat, userCoords.lng, item.lat, item.lng) <= 5)
-    : tabItems;
+  // Attach a distance (km) to each session from the donor's location, resolving
+  // bloodbank slots via their location name.
+  const itemsWithDistance = tabItems.map(item => {
+    const coords = resolveCoords(item, geoCache);
+    const distanceKm = (userCoords && coords)
+      ? haversineKm(userCoords.lat, userCoords.lng, coords.lat, coords.lng)
+      : null;
+    return { ...item, _distanceKm: distanceKm };
+  });
+
+  const filteredItems = locationFilter === "nearby" && userCoords
+    ? itemsWithDistance.filter(item => item._distanceKm != null && item._distanceKm <= 5)
+    : itemsWithDistance;
+
+  // Sort by proximity (nearest first) once we know where the donor is; sessions
+  // with no resolvable location fall to the bottom. Otherwise keep date order.
+  const displayItems = userCoords
+    ? [...filteredItems].sort((a, b) => {
+        if (a._distanceKm == null) return 1;
+        if (b._distanceKm == null) return -1;
+        return a._distanceKm - b._distanceKm;
+      })
+    : filteredItems;
 
   const sessionCounts = useMemo(() => ({
     all: items.length,
@@ -677,7 +744,7 @@ export default function DonorDrivesPanel() {
     slot: items.filter(item => item._type === "slot").length,
   }), [items]);
 
-  const isBooked = !!bookedId;
+  const isBooked = Object.keys(booked).length > 0;
 
   async function book(item) {
     const id = item._id;
@@ -689,13 +756,38 @@ export default function DonorDrivesPanel() {
         await createBooking({ driveId: item._id, slotTime: new Date().toISOString() });
       }
       setBookingState(prev => ({ ...prev, [id]: { done: true } }));
-      setBookedId(id);
+      setBooked(prev => ({ ...prev, [id]: item._type }));
     } catch (e) {
-      setBookingState(prev => ({ ...prev, [id]: { error: e.message } }));
+      // Server says it's already booked → reflect that so the user can cancel it
+      if (e.message?.includes("already have a booking")) {
+        setBooked(prev => ({ ...prev, [id]: item._type }));
+        setBookingState(prev => { const n = { ...prev }; delete n[id]; return n; });
+      } else {
+        setBookingState(prev => ({ ...prev, [id]: { error: e.message } }));
+      }
     }
   }
 
-  function cancelBooking() { setBookedId(null); setBookingState({}); }
+  async function cancelBooking(id, type) {
+    // Slot bookings persist server-side — must be deleted there, or re-booking
+    // hits "you already have a booking for this slot". Drive bookings are local-only.
+    if (type === "slot" && id) {
+      try {
+        await cancelSlotBooking(id);
+      } catch (e) {
+        const gone = e.message?.includes("not found") || e.message?.includes("404");
+        if (!gone) {
+          // Real failure — keep the booking so the UI doesn't lie about state
+          setBookingState(prev => ({ ...prev, [id]: { error: e.message } }));
+          return;
+        }
+        // 404 → already cancelled server-side; fall through and clear local state
+      }
+    }
+    setBooked(prev => { const next = { ...prev }; delete next[id]; return next; });
+    setBookingState(prev => { const next = { ...prev }; delete next[id]; return next; });
+    loadAll(); // re-sync slot capacity counts
+  }
 
   return (
     <div>
@@ -783,7 +875,7 @@ export default function DonorDrivesPanel() {
         {displayItems.map(item => {
           const pct          = item.capacity > 0 ? (item.booked / item.capacity) * 100 : 0;
           const almostFull   = pct > 80;
-          const isThisBooked = bookedId === item._id;
+          const isThisBooked = !!booked[item._id];
           const isOtherBooked = isBooked && !isThisBooked;
           const bs           = bookingState[item._id] ?? {};
           const badge        = TYPE_BADGE[item._type] ?? TYPE_BADGE.drive;
@@ -801,11 +893,21 @@ export default function DonorDrivesPanel() {
               {/* Header row */}
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontFamily: BL.sans, fontSize: 14, fontWeight: 600, color: BL.ink, marginBottom: 4 }}>
-                    {item.name ?? item.location}
+                  <div style={{ fontFamily: BL.sans, fontSize: 14, fontWeight: 600, color: BL.ink, marginBottom: 2 }}>
+                    {item.name || item.location}
                   </div>
+                  {item.name && item.location && (
+                    <div style={{ fontFamily: BL.sans, fontSize: 12, color: BL.muted, marginBottom: 2 }}>
+                      {item.location}
+                    </div>
+                  )}
                   <div style={{ fontFamily: BL.mono, fontSize: 10, color: BL.muted, letterSpacing: 0.4 }}>
-                    {item.date}{item.startTime ? ` · ${item.startTime}` : ""} · {item.location}
+                    {item.date}{item.startTime ? ` · ${item.startTime}` : ""}
+                    {item._distanceKm != null && (
+                      <span style={{ color: BL.red, fontWeight: 600 }}>
+                        {" · "}{item._distanceKm < 1 ? `${Math.round(item._distanceKm * 1000)} m` : `${item._distanceKm.toFixed(1)} km`} away
+                      </span>
+                    )}
                   </div>
                 </div>
                 <div style={{ display: "flex", gap: 6, alignItems: "center", marginLeft: 10, flexShrink: 0 }}>
@@ -834,10 +936,10 @@ export default function DonorDrivesPanel() {
               {isThisBooked ? (
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                   <span style={{ fontFamily: BL.sans, fontSize: 13, color: BL.need.ok.fg, fontWeight: 600 }}>✓ You're booked — see you there!</span>
-                  <button onClick={cancelBooking} style={{ background: "none", border: `1px solid ${BL.hair}`, borderRadius: 5, color: BL.muted, fontFamily: BL.sans, fontSize: 12, padding: "5px 12px", cursor: "pointer" }}>Cancel</button>
+                  <button onClick={() => cancelBooking(item._id, item._type)} style={{ background: "none", border: `1px solid ${BL.hair}`, borderRadius: 5, color: BL.muted, fontFamily: BL.sans, fontSize: 12, padding: "5px 12px", cursor: "pointer" }}>Cancel</button>
                 </div>
               ) : isOtherBooked ? (
-                <div style={{ fontFamily: BL.sans, fontSize: 12, color: BL.faint }}>Cancel your current booking to RSVP here</div>
+                <div style={{ fontFamily: BL.sans, fontSize: 12, color: BL.faint }}>Cancel your current booking to {item._type === "slot" ? "book" : "RSVP"} here</div>
               ) : (
                 <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                   <button
@@ -845,14 +947,16 @@ export default function DonorDrivesPanel() {
                     disabled={bs.loading}
                     style={{ padding: "9px 20px", background: BL.ink, color: "#fff", border: "none", borderRadius: 6, fontFamily: BL.sans, fontSize: 13, fontWeight: 600, cursor: bs.loading ? "default" : "pointer", opacity: bs.loading ? 0.5 : 1, minHeight: 38 }}
                   >
-                    {bs.loading ? "Booking…" : "RSVP"}
+                    {bs.loading ? "Booking…" : item._type === "slot" ? "Book" : "RSVP"}
                   </button>
-                  <button
-                    onClick={() => setSquadItem(item)}
-                    style={{ padding: "9px 16px", background: "none", border: `1px solid ${BL.hair}`, borderRadius: 6, fontFamily: BL.sans, fontSize: 13, color: BL.ink, cursor: "pointer", minHeight: 38 }}
-                  >
-                    Squad RSVP
-                  </button>
+                  {item._type !== "slot" && (
+                    <button
+                      onClick={() => setSquadItem(item)}
+                      style={{ padding: "9px 16px", background: "none", border: `1px solid ${BL.hair}`, borderRadius: 6, fontFamily: BL.sans, fontSize: 13, color: BL.ink, cursor: "pointer", minHeight: 38 }}
+                    >
+                      Squad RSVP
+                    </button>
+                  )}
                   {bs.error && <span style={{ fontFamily: BL.sans, fontSize: 12, color: BL.need.critical.fg }}>{bs.error}</span>}
                 </div>
               )}
