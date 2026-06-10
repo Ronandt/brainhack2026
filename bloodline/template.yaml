@@ -140,6 +140,13 @@ Resources:
       UserPoolId: !Ref DonorUserPool
       Description: HSA staff with admin-level access
 
+  RedCrossSGGroup:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties:
+      GroupName: RedCrossSG
+      UserPoolId: !Ref DonorUserPool
+      Description: Singapore Red Cross staff with final drive approval access
+
 # ---------------------------------------------------------------------------
 # FRONTEND — S3 + CLOUDFRONT
 # ---------------------------------------------------------------------------
@@ -662,6 +669,24 @@ Resources:
           Properties:
             RestApiId: !Ref BloodlineApi
             Path: /api/v1/admin/drives/{driveId}/reject
+            Method: POST
+        GetRedCrossPendingDrives:
+          Type: Api
+          Properties:
+            RestApiId: !Ref BloodlineApi
+            Path: /api/v1/redcross/drives/pending
+            Method: GET
+        ApproveRedCrossDrive:
+          Type: Api
+          Properties:
+            RestApiId: !Ref BloodlineApi
+            Path: /api/v1/redcross/drives/{driveId}/approve
+            Method: POST
+        RejectRedCrossDrive:
+          Type: Api
+          Properties:
+            RestApiId: !Ref BloodlineApi
+            Path: /api/v1/redcross/drives/{driveId}/reject
             Method: POST
         GetStockOverview:
           Type: Api

@@ -1,9 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from "react";
-<<<<<<< HEAD
-import { getDrives, getSlots, createBooking, bookSlot, getMyBookings, createDrive } from "../api";
-=======
-import { getDrives, getSlots, createBooking, bookSlot, cancelSlotBooking, getMyBookings } from "../api";
->>>>>>> 6c9b789c6479cf924cf8be3c9f073dc88c398e87
+import { getDrives, getSlots, createBooking, bookSlot, cancelSlotBooking, getMyBookings, createDrive } from "../api";
 import { BL } from "../tokens";
 import { BLOODBANK_COORDS, haversineKm, resolveCoords } from "../geo";
 

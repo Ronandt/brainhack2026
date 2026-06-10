@@ -87,6 +87,10 @@ export const getDonorSegments = () => request("/api/v1/admin/donors/segments");
 export const getPendingDrives = () => request("/api/v1/admin/drives/pending");
 export const approveDrive = (driveId) => request(`/api/v1/admin/drives/${driveId}/approve`, { method: "POST" });
 export const rejectDrive = (driveId) => request(`/api/v1/admin/drives/${driveId}/reject`, { method: "POST" });
+export const getRedCrossPendingDrives = () => request("/api/v1/redcross/drives/pending");
+export const approveRedCrossDrive = (driveId) => request(`/api/v1/redcross/drives/${driveId}/approve`, { method: "POST" });
+export const rejectRedCrossDrive = (driveId, reason) =>
+  request(`/api/v1/redcross/drives/${driveId}/reject`, { method: "POST", body: JSON.stringify({ reason }) });
 export const getStockOverview = () => request("/api/v1/admin/stock");
 export const getAllAlerts = () => request("/api/v1/admin/alerts");
 export const getTrafficIncidents = () => request("/api/v1/admin/traffic-incidents");

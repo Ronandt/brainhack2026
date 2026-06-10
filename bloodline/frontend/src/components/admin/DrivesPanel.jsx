@@ -64,7 +64,7 @@ export default function DrivesPanel() {
             Community drive queue
           </div>
           <div style={{ fontFamily: BL.sans, fontSize: 13, color: BL.muted, marginTop: 4 }}>
-            {loading ? "Loading…" : `${drives.length} pending request${drives.length !== 1 ? "s" : ""} · approve, decline, or request edits.`}
+            {loading ? "Loading…" : `${drives.length} request${drives.length !== 1 ? "s" : ""} needing HSA review · approve to send to Red Cross, decline, or request edits.`}
           </div>
         </div>
         <div style={{ display: "flex", gap: 6 }}>
@@ -100,7 +100,9 @@ export default function DrivesPanel() {
                 </div>
                 <div style={{ display: "grid", justifyItems: "end", gap: 4 }}>
                   <Tag color={BL.need[need].fg} bg={BL.need[need].bg}>{BL.need[need].label} region</Tag>
-                  <Tag color={BL.red} bg={BL.redSoft}>Pending approval</Tag>
+                  <Tag color={BL.red} bg={BL.redSoft}>
+                    {drive.status === "redcross_rejected" ? "Red Cross rejected" : "Pending approval"}
+                  </Tag>
                 </div>
               </div>
 
@@ -138,6 +140,14 @@ export default function DrivesPanel() {
                     </div>
                   </div>
                 )}
+                {drive.redCrossRejectedReason && (
+                  <div style={{ background: BL.redSoft, border: `1px solid ${BL.red}33`, borderRadius: 5, padding: 9 }}>
+                    <Tag color={BL.red}>Red Cross reason</Tag>
+                    <div style={{ fontFamily: BL.sans, fontSize: 12, color: BL.redInk, marginTop: 3, lineHeight: 1.4 }}>
+                      {drive.redCrossRejectedReason}
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Forecast fit */}
@@ -171,7 +181,7 @@ export default function DrivesPanel() {
                     disabled={as.loading}
                     style={{ ...fillBtn, marginLeft: "auto" }}
                   >
-                    {as.loading ? "…" : "Approve"}
+                    {as.loading ? "…" : drive.status === "redcross_rejected" ? "Resubmit" : "Send to Red Cross"}
                   </button>
                 </div>
               )}

@@ -12,6 +12,7 @@ import DemandPanel from "./admin/DemandPanel";
 import ManageSlotsPanel from "./hospital/ManageSlotsPanel";
 import CheckinPanel from "./hospital/CheckinPanel";
 import SetupLocationPanel from "./hospital/SetupLocationPanel";
+import DriveApprovalsPanel from "./redcross/DriveApprovalsPanel";
 import AdminProfilePanel from "./admin/AdminProfilePanel";
 import { getHospitalProfile, getDonor } from "../api";
 import { getToken } from "../auth";
@@ -78,6 +79,7 @@ const BLOODBANK_TABS = [
 ];
 
 const SRC_TABS = [
+  { id: "srcdrives",  label: "Drive approvals" },
   { id: "srcmanage",  label: "Manage Slots" },
   { id: "srccheckin", label: "Check-in" },
 ];
@@ -97,6 +99,7 @@ function PanelContent({ tab, onLogout, hospitalName }) {
   if (tab === "bbcheckin")  return <CheckinPanel />;
   if (tab === "srcmanage")  return <ManageSlotsPanel locationName={hospitalName ?? "Singapore Red Cross"} />;
   if (tab === "srccheckin") return <CheckinPanel />;
+  if (tab === "srcdrives")  return <DriveApprovalsPanel />;
   return null;
 }
 
