@@ -140,6 +140,20 @@ Resources:
       UserPoolId: !Ref DonorUserPool
       Description: HSA staff with admin-level access
 
+  BloodBankGroup:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties:
+      GroupName: BloodBank
+      UserPoolId: !Ref DonorUserPool
+      Description: HSA blood bank staff — manage slots and donor check-in
+
+  RedCrossSGGroup:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties:
+      GroupName: RedCrossSG
+      UserPoolId: !Ref DonorUserPool
+      Description: Singapore Red Cross staff — manage drives and check-in
+
 # ---------------------------------------------------------------------------
 # FRONTEND — S3 + CLOUDFRONT
 # ---------------------------------------------------------------------------
