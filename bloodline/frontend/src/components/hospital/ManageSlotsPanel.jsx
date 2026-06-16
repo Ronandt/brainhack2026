@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { createSlot, getHospitalSlots, getSlotBookings } from "../../api";
 import { BL } from "../../tokens";
 
@@ -94,7 +94,7 @@ const labelStyle = {
   textTransform: "uppercase", marginBottom: 6, display: "block",
 };
 const inputStyle = {
-  width: "100%", padding: "9px 12px", border: `1px solid ${BL.hair}`, borderRadius: 6,
+  width: "100%", padding: "9px 12px", border: `1px solid ${BL.hair}`, borderRadius: 8,
   fontFamily: BL.sans, fontSize: 14, color: BL.ink, background: BL.card,
   boxSizing: "border-box", outline: "none",
 };
@@ -148,7 +148,7 @@ function BookingModal({ slot, dateStr, locationName, onClose }) {
       <div
         onClick={e => e.stopPropagation()}
         style={{
-          background: BL.card, borderRadius: 10, padding: 24,
+          background: BL.card, borderRadius: 16, padding: 24,
           width: "100%", maxWidth: 460, maxHeight: "80vh",
           overflowY: "auto", boxShadow: "0 8px 32px rgba(0,0,0,0.18)",
         }}
@@ -175,7 +175,7 @@ function BookingModal({ slot, dateStr, locationName, onClose }) {
         {/* KPIs */}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, marginBottom: 20 }}>
           {[{ l: "Booked", v: booked }, { l: "Capacity", v: capacity }, { l: "Available", v: available }].map(({ l, v }) => (
-            <div key={l} style={{ background: BL.fill, borderRadius: 6, padding: "10px 12px" }}>
+            <div key={l} style={{ background: BL.fill, borderRadius: 10, padding: "10px 12px" }}>
               <div style={{ fontFamily: BL.mono, fontSize: 20, fontWeight: 700, color: BL.ink }}>{v}</div>
               <div style={{ fontFamily: BL.mono, fontSize: 9, color: BL.muted, marginTop: 2, letterSpacing: 0.4, textTransform: "uppercase" }}>{l}</div>
             </div>
@@ -199,11 +199,11 @@ function BookingModal({ slot, dateStr, locationName, onClose }) {
                 <div key={b.donorId ?? i} style={{
                   display: "flex", alignItems: "center", gap: 12,
                   padding: "10px 12px", background: BL.paper,
-                  border: `1px solid ${BL.hair}`, borderRadius: 6,
+                  boxShadow: "0 0 0 1px rgba(0,0,0,0.06)", borderRadius: 10,
                 }}>
                   <div style={{
                     width: 36, height: 36, borderRadius: 18, background: BL.fill,
-                    border: `1px solid ${BL.hair}`, flexShrink: 0,
+                    flexShrink: 0,
                     display: "flex", alignItems: "center", justifyContent: "center",
                     fontFamily: BL.sans, fontSize: 14, fontWeight: 700, color: BL.ink,
                   }}>
@@ -218,7 +218,7 @@ function BookingModal({ slot, dateStr, locationName, onClose }) {
                     )}
                   </div>
                   <div style={{
-                    background: BL.fill, border: `1px solid ${BL.hair}`, borderRadius: 5,
+                    background: BL.fill, boxShadow: "0 0 0 1px rgba(0,0,0,0.08)", borderRadius: 8,
                     padding: "4px 10px", fontFamily: BL.mono, fontSize: 13, fontWeight: 700, color: BL.ink,
                     flexShrink: 0,
                   }}>
@@ -241,6 +241,7 @@ function BloodbankView({ effectiveLoc, locations, onLocChange }) {
   const [loading,  setLoading]  = useState(true);
   const [seeding,  setSeeding]  = useState(false);
   const [selected, setSelected] = useState(null);
+  const fullSeedDone = useRef(false);
 
   function loadSlots() {
     setLoading(true);
@@ -252,23 +253,55 @@ function BloodbankView({ effectiveLoc, locations, onLocChange }) {
 
   useEffect(() => { loadSlots(); }, []);
 
-  // Auto-seed missing slots for selected location + date
+  // On first load: seed ALL 5 banks × next 7 days so donors always see slots
   useEffect(() => {
-    if (loading || seeding) return;
-    const blocks = generateBlocks(effectiveLoc, dateStr);
-    if (!blocks.length) return;
+    if (loading || seeding || fullSeedDone.current) return;
+    fullSeedDone.current = true;
 
-    const existing   = apiSlots.filter(s => s.location === effectiveLoc && s.date === dateStr);
-    const existingTs = new Set(existing.map(s => s.startTime));
-    const missing    = blocks.filter(b => !existingTs.has(b.startTime));
+    const base  = todayISO();
+    const dates = Array.from({ length: 7 }, (_, i) => addDays(base, i));
+    const allLocs = Object.keys(HOURS);
+
+    const missing = [];
+    for (const loc of allLocs) {
+      for (const d of dates) {
+        const blocks = generateBlocks(loc, d);
+        if (!blocks.length) continue;
+        const existingTs = new Set(
+          apiSlots.filter(s => s.location === loc && s.date === d).map(s => s.startTime)
+        );
+        blocks.filter(b => !existingTs.has(b.startTime)).forEach(b =>
+          missing.push({ location: loc, date: d, startTime: b.startTime, endTime: b.endTime })
+        );
+      }
+    }
     if (!missing.length) return;
 
     setSeeding(true);
     Promise.all(missing.map(b => createSlot({
-      location: effectiveLoc,
-      date: dateStr,
-      startTime: b.startTime,
-      endTime: b.endTime,
+      location: b.location, date: b.date,
+      startTime: b.startTime, endTime: b.endTime,
+      capacity: SLOT_CAPACITY,
+    })))
+      .then(() => loadSlots())
+      .catch(() => {})
+      .finally(() => setSeeding(false));
+  }, [loading]);
+
+  // Fallback: also seed for the specific date the user navigates to
+  useEffect(() => {
+    if (loading || seeding || !fullSeedDone.current) return;
+    const blocks = generateBlocks(effectiveLoc, dateStr);
+    if (!blocks.length) return;
+    const existingTs = new Set(
+      apiSlots.filter(s => s.location === effectiveLoc && s.date === dateStr).map(s => s.startTime)
+    );
+    const missing = blocks.filter(b => !existingTs.has(b.startTime));
+    if (!missing.length) return;
+    setSeeding(true);
+    Promise.all(missing.map(b => createSlot({
+      location: effectiveLoc, date: dateStr,
+      startTime: b.startTime, endTime: b.endTime,
       capacity: SLOT_CAPACITY,
     })))
       .then(() => loadSlots())
@@ -307,11 +340,12 @@ function BloodbankView({ effectiveLoc, locations, onLocChange }) {
               type="button"
               onClick={() => { onLocChange(loc); setSelected(null); }}
               style={{
-                flexShrink: 0, padding: "6px 14px", borderRadius: 5, cursor: "pointer",
+                flexShrink: 0, padding: "6px 14px", borderRadius: 8, cursor: "pointer",
                 fontFamily: BL.sans, fontSize: 13, fontWeight: active ? 600 : 400,
                 background: active ? BL.ink : BL.fill,
                 color: active ? "#fff" : BL.muted,
-                border: `1px solid ${active ? BL.ink : BL.hair}`,
+                border: active ? `1px solid ${BL.ink}` : "none",
+                boxShadow: active ? undefined : "0 0 0 1px rgba(0,0,0,0.08)",
                 whiteSpace: "nowrap",
               }}
             >
@@ -335,7 +369,7 @@ function BloodbankView({ effectiveLoc, locations, onLocChange }) {
           <button
             onClick={() => { setDateStr(d => addDays(d, -1)); setSelected(null); }}
             style={{
-              background: BL.fill, border: `1px solid ${BL.hair}`, borderRadius: 5,
+              background: BL.fill, border: "none", borderRadius: 8, boxShadow: "0 0 0 1px rgba(0,0,0,0.08)",
               width: 32, height: 32, cursor: "pointer", fontFamily: BL.sans,
               fontSize: 16, color: BL.ink, display: "flex", alignItems: "center", justifyContent: "center",
             }}
@@ -349,7 +383,7 @@ function BloodbankView({ effectiveLoc, locations, onLocChange }) {
           <button
             onClick={() => { setDateStr(d => addDays(d, 1)); setSelected(null); }}
             style={{
-              background: BL.fill, border: `1px solid ${BL.hair}`, borderRadius: 5,
+              background: BL.fill, border: "none", borderRadius: 8, boxShadow: "0 0 0 1px rgba(0,0,0,0.08)",
               width: 32, height: 32, cursor: "pointer", fontFamily: BL.sans,
               fontSize: 16, color: BL.ink, display: "flex", alignItems: "center", justifyContent: "center",
             }}
@@ -367,7 +401,7 @@ function BloodbankView({ effectiveLoc, locations, onLocChange }) {
       {/* Closed message */}
       {!loading && isClosed && (
         <div style={{
-          background: BL.fill, border: `1px solid ${BL.hair}`, borderRadius: 8,
+          background: BL.fill, boxShadow: "0 1px 10px rgba(0,0,0,0.06), 0 0 0 1px rgba(0,0,0,0.04)", borderRadius: 14,
           padding: 32, textAlign: "center",
         }}>
           <div style={{ fontFamily: BL.sans, fontSize: 15, fontWeight: 600, color: BL.ink }}>
@@ -396,21 +430,19 @@ function BloodbankView({ effectiveLoc, locations, onLocChange }) {
                 key={slot.startTime}
                 onClick={() => !pending && setSelected(slot)}
                 style={{
-                  background: BL.card, border: `1px solid ${BL.hair}`,
-                  borderRadius: 8, padding: 16,
+                  background: BL.card, boxShadow: "0 1px 8px rgba(0,0,0,0.05), 0 0 0 1px rgba(0,0,0,0.06)",
+                  borderRadius: 12, padding: 16,
                   cursor: pending ? "default" : "pointer",
                   opacity: pending ? 0.5 : 1,
-                  transition: "box-shadow 0.12s, border-color 0.12s",
+                  transition: "box-shadow 0.12s",
                 }}
                 onMouseEnter={e => {
                   if (!pending) {
-                    e.currentTarget.style.boxShadow = "0 2px 10px rgba(0,0,0,0.09)";
-                    e.currentTarget.style.borderColor = BL.ink;
+                    e.currentTarget.style.boxShadow = "0 3px 14px rgba(0,0,0,0.1), 0 0 0 1px rgba(0,0,0,0.1)";
                   }
                 }}
                 onMouseLeave={e => {
-                  e.currentTarget.style.boxShadow = "none";
-                  e.currentTarget.style.borderColor = BL.hair;
+                  e.currentTarget.style.boxShadow = "0 1px 8px rgba(0,0,0,0.05), 0 0 0 1px rgba(0,0,0,0.06)";
                 }}
               >
                 <div style={{ fontFamily: BL.mono, fontSize: 13, fontWeight: 700, color: BL.ink, marginBottom: 12 }}>
@@ -521,7 +553,7 @@ function ManualView({ locationName }) {
             padding: "9px 18px", background: showCreate ? BL.fill : BL.ink,
             color: showCreate ? BL.ink : "#fff",
             border: `1px solid ${showCreate ? BL.hair : BL.ink}`,
-            borderRadius: 6, fontFamily: BL.sans, fontSize: 13, fontWeight: 600, cursor: "pointer",
+            borderRadius: 8, fontFamily: BL.sans, fontSize: 13, fontWeight: 600, cursor: "pointer",
           }}
         >
           {showCreate ? "Cancel" : "+ New slot"}
@@ -529,7 +561,7 @@ function ManualView({ locationName }) {
       </div>
 
       {showCreate && (
-        <div style={{ background: BL.card, border: `1px solid ${BL.hair}`, borderRadius: 8, padding: 20, marginBottom: 20 }}>
+        <div style={{ background: BL.card, boxShadow: "0 1px 10px rgba(0,0,0,0.06), 0 0 0 1px rgba(0,0,0,0.04)", borderRadius: 14, padding: 20, marginBottom: 20 }}>
           <div style={{ fontFamily: BL.sans, fontSize: 15, fontWeight: 600, color: BL.ink, marginBottom: 16 }}>New donation slot</div>
           <form onSubmit={submit}>
             <div style={{ marginBottom: 16 }}>
@@ -567,7 +599,7 @@ function ManualView({ locationName }) {
                   const sel = selTypes.includes(t);
                   return (
                     <button key={t} type="button" onClick={() => toggleType(t)} style={{
-                      padding: "5px 12px", borderRadius: 4, fontFamily: BL.mono, fontSize: 12, cursor: "pointer",
+                      padding: "5px 12px", borderRadius: 8, fontFamily: BL.mono, fontSize: 12, cursor: "pointer",
                       background: sel ? BL.ink : BL.fill, color: sel ? "#fff" : BL.ink,
                       border: `1px solid ${sel ? BL.ink : BL.hair}`,
                     }}>{t}</button>
@@ -594,7 +626,7 @@ function ManualView({ locationName }) {
       {!loading && !loadError && total > 0 && (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, marginBottom: 20 }}>
           {[{ l: "Total slots", v: total }, { l: "Available", v: available }, { l: "Bookings", v: totalBooked }].map(({ l, v }) => (
-            <div key={l} style={{ background: BL.card, border: `1px solid ${BL.hair}`, borderRadius: 6, padding: 14 }}>
+            <div key={l} style={{ background: BL.card, boxShadow: "0 1px 8px rgba(0,0,0,0.05), 0 0 0 1px rgba(0,0,0,0.04)", borderRadius: 12, padding: 14 }}>
               <div style={{ fontFamily: BL.mono, fontSize: 9, color: BL.muted, letterSpacing: 0.6, textTransform: "uppercase", marginBottom: 6 }}>{l}</div>
               <div style={{ fontFamily: BL.mono, fontSize: 24, fontWeight: 600, color: BL.ink }}>{v}</div>
             </div>
@@ -616,12 +648,12 @@ function ManualView({ locationName }) {
             <div
               key={slot.slotId}
               style={{
-                background: BL.card, border: `1px solid ${BL.hair}`, borderRadius: 6, padding: 18,
-                cursor: "pointer", transition: "border-color 0.12s",
+                background: BL.card, boxShadow: "0 1px 8px rgba(0,0,0,0.05), 0 0 0 1px rgba(0,0,0,0.06)", borderRadius: 12, padding: 18,
+                cursor: "pointer", transition: "box-shadow 0.12s",
               }}
               onClick={() => setSelected(slot)}
-              onMouseEnter={e => { e.currentTarget.style.borderColor = BL.ink; }}
-              onMouseLeave={e => { e.currentTarget.style.borderColor = BL.hair; }}
+              onMouseEnter={e => { e.currentTarget.style.boxShadow = "0 3px 12px rgba(0,0,0,0.1)"; }}
+              onMouseLeave={e => { e.currentTarget.style.boxShadow = "0 1px 8px rgba(0,0,0,0.05), 0 0 0 1px rgba(0,0,0,0.06)"; }}
             >
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4 }}>
                 <div style={{ fontFamily: BL.sans, fontWeight: 600, fontSize: 15, color: BL.ink }}>

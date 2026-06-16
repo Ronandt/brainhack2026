@@ -21,9 +21,9 @@ function Tag({ children, color }) {
   );
 }
 
-function W({ children, style, pad = 20 }) {
+function Card({ children, style, pad = 20 }) {
   return (
-    <div style={{ background: BL.card, border: `1px solid ${BL.hair}`, borderRadius: 6, padding: pad, ...style }}>
+    <div style={{ background: BL.card, boxShadow: "0 1px 10px rgba(0,0,0,0.06), 0 0 0 1px rgba(0,0,0,0.04)", borderRadius: 14, padding: pad, ...style }}>
       {children}
     </div>
   );
@@ -56,7 +56,7 @@ export default function DemandPanel() {
 
   const labelStyle = { display: "block", fontFamily: BL.sans, fontSize: 12, color: BL.muted, marginBottom: 5, marginTop: 16 };
   const inputStyle = {
-    width: "100%", background: BL.card, border: `1px solid ${BL.rule}`, borderRadius: 6,
+    width: "100%", background: BL.fill, border: `1px solid ${BL.hair}`, borderRadius: 10,
     padding: "9px 12px", color: BL.ink, fontSize: 13, fontFamily: BL.sans, outline: "none",
     boxSizing: "border-box",
   };
@@ -75,7 +75,7 @@ export default function DemandPanel() {
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
         {/* Form */}
-        <W pad={20}>
+        <Card pad={20}>
           <Tag>Step 1 · Submit Demand Signal</Tag>
           <div style={{ fontFamily: BL.sans, fontSize: 12, color: BL.muted, marginTop: 6, marginBottom: 4 }}>
             Procedure counts affect the forecast model for the specified blood type and date.
@@ -117,7 +117,7 @@ export default function DemandPanel() {
             <button
               style={{
                 marginTop: 18, width: "100%", padding: "11px 0",
-                background: BL.ink, color: "#fff", border: "none", borderRadius: 6,
+                background: BL.ink, color: "#fff", border: "none", borderRadius: 10,
                 fontFamily: BL.sans, fontSize: 13, fontWeight: 500, cursor: "pointer",
                 opacity: loading ? 0.7 : 1,
               }}
@@ -136,11 +136,11 @@ export default function DemandPanel() {
               {error}
             </div>
           )}
-        </W>
+        </Card>
 
         {/* Info + recent */}
         <div>
-          <W pad={16}>
+          <Card pad={16}>
             <Tag>How this works</Tag>
             <div style={{ marginTop: 12 }}>
               {[
@@ -150,29 +150,29 @@ export default function DemandPanel() {
               ].map((text, i) => (
                 <div key={i} style={{
                   fontFamily: BL.sans, fontSize: 12, color: BL.muted, marginBottom: i < 2 ? 10 : 0,
-                  paddingLeft: 12, borderLeft: `2px solid ${BL.rule}`, lineHeight: 1.5,
+                  paddingLeft: 12, borderLeft: `2px solid ${BL.fill}`, lineHeight: 1.5,
                 }}>
                   {text}
                 </div>
               ))}
             </div>
-          </W>
+          </Card>
 
           {submissions.length > 0 && (
-            <W pad={16} style={{ marginTop: 14 }}>
+            <Card pad={16} style={{ marginTop: 14 }}>
               <Tag>Recent submissions · this session</Tag>
               <div style={{ marginTop: 10 }}>
                 {submissions.map((sub, i) => (
                   <div key={`${sub.hospital}-${sub.bloodType}-${sub.date}-${i}`} style={{
                     fontFamily: BL.mono, fontSize: 11, color: BL.muted,
                     padding: "8px 0",
-                    borderBottom: i < submissions.length - 1 ? `1px solid ${BL.hair}` : "none",
+                    borderBottom: i < submissions.length - 1 ? `1px solid ${BL.fill}` : "none",
                   }}>
                     {sub.hospital.split(" ")[0]} · <span style={{ color: BL.ink }}>{sub.bloodType}</span> · {sub.procedureCount} procedures · {sub.date}
                   </div>
                 ))}
               </div>
-            </W>
+            </Card>
           )}
         </div>
       </div>

@@ -1,4 +1,7 @@
 import { useState, useEffect } from "react";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faHouse, faCalendarDays, faHeart, faUser } from "@fortawesome/free-solid-svg-icons";
+import { faHouse as faHouseReg, faCalendarDays as faCalendarDaysReg, faHeart as faHeartReg, faUser as faUserReg } from "@fortawesome/free-regular-svg-icons";
 import { BL } from "../tokens";
 import HomePanel from "./HomePanel";
 import DonorDrivesPanel from "./DonorDrivesPanel";
@@ -12,6 +15,7 @@ import DemandPanel from "./admin/DemandPanel";
 import ManageSlotsPanel from "./hospital/ManageSlotsPanel";
 import CheckinPanel from "./hospital/CheckinPanel";
 import SetupLocationPanel from "./hospital/SetupLocationPanel";
+import DriveApprovalsPanel from "./redcross/DriveApprovalsPanel";
 import AdminProfilePanel from "./admin/AdminProfilePanel";
 import { getHospitalProfile, getDonor } from "../api";
 import { getToken } from "../auth";
@@ -46,8 +50,14 @@ function isHospital(token) {
   return decodeGroups(token).includes("RedCrossSG");
 }
 
-const HSA_BLUE = "#4a6fa5";
-const SRC_RED  = BL.red;
+const HSA_BLUE   = "#4a6fa5";
+const SRC_RED    = BL.red;
+const SIDEBAR_BG = "#1c1916";
+const SIDEBAR_ACTIVE_BG = "rgba(255,255,255,0.09)";
+const SIDEBAR_HOVER_BG  = "rgba(255,255,255,0.04)";
+const SIDEBAR_LABEL     = "#6b6560";
+const SIDEBAR_MUTED     = "#a09a90";
+const SIDEBAR_DIVIDER   = "rgba(255,255,255,0.07)";
 
 const SG_BLOODBANKS = [
   "Bloodbank@HSA",
@@ -58,10 +68,10 @@ const SG_BLOODBANKS = [
 ];
 
 const DONOR_TABS = [
-  { id: "home",    label: "Home" },
-  { id: "drives",  label: "Book" },
-  { id: "impact",  label: "Impact" },
-  { id: "profile", label: "You" },
+  { id: "home",    label: "Home",   solid: faHouse,        outline: faHouseReg },
+  { id: "drives",  label: "Book",   solid: faCalendarDays, outline: faCalendarDaysReg },
+  { id: "impact",  label: "Impact", solid: faHeart,        outline: faHeartReg },
+  { id: "profile", label: "You",    solid: faUser,         outline: faUserReg },
 ];
 
 const ADMIN_TABS = [
@@ -78,12 +88,130 @@ const BLOODBANK_TABS = [
 ];
 
 const SRC_TABS = [
+  { id: "srcdrives",  label: "Drive approvals" },
   { id: "srcmanage",  label: "Manage Slots" },
   { id: "srccheckin", label: "Check-in" },
 ];
 
-function PanelContent({ tab, onLogout, hospitalName }) {
-  if (tab === "home")     return <HomePanel />;
+function AdminSidebar({ tabs, tab, setTab, accent, roleLabel, footer }) {
+  const [hovered, setHovered] = useState(null);
+
+  return (
+    <div style={{
+      width: 220, background: SIDEBAR_BG, color: "#e9e6e0",
+      display: "flex", flexDirection: "column", flexShrink: 0,
+      boxShadow: "1px 0 0 rgba(255,255,255,0.05)",
+    }}>
+      {/* Logo */}
+      <div style={{ padding: "22px 16px 16px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
+          <div style={{
+            width: 22, height: 22, borderRadius: 7, background: accent, flexShrink: 0,
+            boxShadow: `0 2px 8px ${accent}50`,
+          }} />
+          <span style={{ fontFamily: BL.sans, fontSize: 15, fontWeight: 700, letterSpacing: -0.3 }}>
+            BloodLine
+          </span>
+        </div>
+        <div style={{ fontFamily: BL.mono, fontSize: 9, color: SIDEBAR_LABEL, marginTop: 5, letterSpacing: 0.9 }}>
+          {roleLabel}
+        </div>
+      </div>
+
+      {/* Divider */}
+      <div style={{ margin: "0 12px 6px", height: 1, background: SIDEBAR_DIVIDER }} />
+
+      {/* Nav */}
+      <div style={{ padding: "4px 10px", flex: 1 }}>
+        {tabs.map(t => {
+          const active = tab === t.id;
+          const hover  = hovered === t.id && !active;
+          return (
+            <button
+              key={t.id}
+              onClick={() => setTab(t.id)}
+              onMouseEnter={() => setHovered(t.id)}
+              onMouseLeave={() => setHovered(null)}
+              style={{
+                display: "block", width: "100%", textAlign: "left",
+                padding: "9px 12px", borderRadius: 8, marginBottom: 2,
+                cursor: "pointer", border: "none",
+                background: active ? SIDEBAR_ACTIVE_BG : hover ? SIDEBAR_HOVER_BG : "transparent",
+                fontFamily: BL.sans, fontSize: 13, fontWeight: active ? 600 : 400,
+                color: active ? "#fff" : SIDEBAR_MUTED,
+                borderLeft: `3px solid ${active ? accent : "transparent"}`,
+                transition: "background 0.12s, color 0.1s",
+              }}
+            >
+              {t.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Footer */}
+      <div style={{ padding: "10px 12px", borderTop: `1px solid ${SIDEBAR_DIVIDER}` }}>
+        {footer}
+      </div>
+    </div>
+  );
+}
+
+function SidebarSignOut({ onLogout, meta }) {
+  return (
+    <>
+      {meta && (
+        <div style={{ fontFamily: BL.mono, fontSize: 9, color: SIDEBAR_LABEL, letterSpacing: 0.7, marginBottom: 8, lineHeight: 1.8 }}>
+          {meta}
+        </div>
+      )}
+      <button
+        onClick={onLogout}
+        style={{
+          width: "100%", background: "rgba(255,255,255,0.05)", border: "none",
+          color: SIDEBAR_MUTED, borderRadius: 8, padding: "7px 0",
+          cursor: "pointer", fontSize: 12, fontFamily: BL.sans,
+        }}
+      >
+        Sign out
+      </button>
+    </>
+  );
+}
+
+function AdminTopBar({ breadcrumbLeft, breadcrumbRight, right }) {
+  return (
+    <div style={{
+      height: 50, borderBottom: "1px solid rgba(0,0,0,0.07)",
+      display: "flex", alignItems: "center", justifyContent: "space-between",
+      padding: "0 24px", background: BL.card, flexShrink: 0,
+    }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <span style={{ fontFamily: BL.mono, fontSize: 10, color: BL.muted, letterSpacing: 0.8 }}>
+          {breadcrumbLeft}
+        </span>
+        <span style={{ color: BL.hair, fontSize: 14 }}>/</span>
+        <span style={{ fontFamily: BL.mono, fontSize: 10, color: BL.ink, letterSpacing: 0.4 }}>
+          {breadcrumbRight}
+        </span>
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <span style={{ fontFamily: BL.mono, fontSize: 9, color: BL.faint, letterSpacing: 0.4 }}>
+          {new Date().toLocaleString("en-SG", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
+        </span>
+        {right && (
+          <>
+            <div style={{ width: 1, height: 16, background: BL.hair }} />
+            {right}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function PanelContent({ tab, onLogout, hospitalName, onNavigate }) {
+  if (tab === "home")     return <HomePanel onNavigate={onNavigate} />;
   if (tab === "drives")   return <DonorDrivesPanel />;
   if (tab === "impact")   return <ImpactPanel />;
   if (tab === "profile")  return <DonorPanel onLogout={onLogout} />;
@@ -97,6 +225,7 @@ function PanelContent({ tab, onLogout, hospitalName }) {
   if (tab === "bbcheckin")  return <CheckinPanel />;
   if (tab === "srcmanage")  return <ManageSlotsPanel locationName={hospitalName ?? "Singapore Red Cross"} />;
   if (tab === "srccheckin") return <CheckinPanel />;
+  if (tab === "srcdrives")  return <DriveApprovalsPanel />;
   return null;
 }
 
@@ -106,78 +235,22 @@ function BloodBankDashboard({ tab, setTab, onLogout }) {
 
   return (
     <div style={{ display: "flex", minHeight: "100vh", fontFamily: BL.sans }}>
-      <div style={{
-        width: 200, background: "#1a1917", color: "#e9e6e0",
-        display: "flex", flexDirection: "column", flexShrink: 0,
-      }}>
-        <div style={{ padding: "18px 16px 12px" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <div style={{ width: 18, height: 18, borderRadius: 3, background: HSA_BLUE }} />
-            <span style={{ fontFamily: BL.sans, fontSize: 14, fontWeight: 600 }}>BloodLine</span>
-          </div>
-          <div style={{ fontFamily: BL.mono, fontSize: 9, color: "#8e8a82", marginTop: 4, letterSpacing: 0.8 }}>
-            HSA BLOODBANK · PROD
-          </div>
-        </div>
-
-        <div style={{ padding: "8px", flex: 1 }}>
-          {BLOODBANK_TABS.map(t => (
-            <button
-              key={t.id}
-              onClick={() => setTab(t.id)}
-              style={{
-                display: "block", width: "100%", textAlign: "left",
-                padding: "8px 12px", borderRadius: 4, marginBottom: 2, cursor: "pointer",
-                background: tab === t.id ? "#2a2723" : "transparent",
-                fontFamily: BL.sans, fontSize: 13, border: "none",
-                color: tab === t.id ? "#fff" : "#bdb8b0",
-                borderLeft: tab === t.id ? `2px solid ${HSA_BLUE}` : "2px solid transparent",
-              }}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
-
-        <div style={{ padding: "12px 16px", borderTop: "1px solid #2a2723" }}>
-          <div style={{ fontFamily: BL.mono, fontSize: 9, color: "#8e8a82", marginBottom: 8, letterSpacing: 0.8 }}>
-            HSA BLOODBANK · PROD
-          </div>
-          <button
-            onClick={onLogout}
-            style={{
-              width: "100%", background: "none", border: "1px solid #2a2723",
-              color: "#8e8a82", borderRadius: 6, padding: "6px 0",
-              cursor: "pointer", fontSize: 12, fontFamily: BL.sans,
-            }}
-          >
-            Sign out
-          </button>
-        </div>
-      </div>
+      <AdminSidebar
+        tabs={BLOODBANK_TABS}
+        tab={tab}
+        setTab={setTab}
+        accent={HSA_BLUE}
+        roleLabel="HSA BLOODBANK · PROD"
+        footer={<SidebarSignOut onLogout={onLogout} />}
+      />
 
       <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
-        <div style={{
-          height: 48, borderBottom: `1px solid ${BL.hair}`,
-          display: "flex", alignItems: "center", justifyContent: "space-between",
-          padding: "0 24px", background: BL.card, flexShrink: 0,
-        }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-            <span style={{ fontFamily: BL.mono, fontSize: 10, color: BL.muted, letterSpacing: 0.8 }}>
-              HSA BLOODBANK
-            </span>
-            <span style={{ color: BL.faint }}>/</span>
-            <span style={{ fontFamily: BL.mono, fontSize: 10, color: BL.ink }}>
-              {activeLabel.toUpperCase()}
-            </span>
-          </div>
-          <span style={{ fontFamily: BL.sans, fontSize: 12, color: BL.muted }}>
-            {new Date().toLocaleString("en-SG", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
-          </span>
-        </div>
-
+        <AdminTopBar
+          breadcrumbLeft="HSA BLOODBANK"
+          breadcrumbRight={activeLabel.toUpperCase()}
+        />
         <div style={{ flex: 1, overflowY: "auto", background: BL.paper }}>
-          <div style={{ maxWidth: 1100, padding: 24 }}>
+          <div style={{ padding: 24 }}>
             <PanelContent tab={tab} hospitalName="HSA Bloodbank" />
           </div>
         </div>
@@ -201,114 +274,59 @@ function AdminDashboard({ tab, setTab, onLogout }) {
     : "?";
   const displayName = adminName ? `${adminName} · HSA` : "HSA Admin";
 
+  const profileBtn = (
+    <button
+      onClick={() => setTab("aprofile")}
+      onMouseEnter={() => setProfileHovered(true)}
+      onMouseLeave={() => setProfileHovered(false)}
+      style={{
+        display: "flex", alignItems: "center", gap: 8,
+        background: profileHovered ? BL.fill : "none",
+        border: `1px solid ${profileHovered ? BL.hair : "transparent"}`,
+        borderRadius: 8, padding: "4px 10px 4px 4px",
+        cursor: "pointer", transition: "all 0.12s",
+      }}
+    >
+      <div style={{
+        width: 28, height: 28, borderRadius: 14, flexShrink: 0,
+        background: tab === "aprofile" ? BL.ink : BL.fill,
+        border: `1px solid ${tab === "aprofile" ? BL.ink : BL.hair}`,
+        display: "flex", alignItems: "center", justifyContent: "center",
+        fontFamily: BL.sans, fontSize: 11, fontWeight: 700,
+        color: tab === "aprofile" ? "#fff" : BL.ink,
+      }}>
+        {initials}
+      </div>
+      <span style={{ fontFamily: BL.sans, fontSize: 12, color: BL.ink, whiteSpace: "nowrap" }}>
+        {displayName}
+      </span>
+    </button>
+  );
+
   return (
     <div style={{ display: "flex", minHeight: "100vh", fontFamily: BL.sans }}>
-      {/* Left rail */}
-      <div style={{
-        width: 200, background: "#1a1917", color: "#e9e6e0",
-        display: "flex", flexDirection: "column", flexShrink: 0,
-      }}>
-        <div style={{ padding: "18px 16px 12px" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <div style={{ width: 18, height: 18, borderRadius: 3, background: HSA_BLUE }} />
-            <span style={{ fontFamily: BL.sans, fontSize: 14, fontWeight: 600 }}>BloodLine</span>
-          </div>
-          <div style={{ fontFamily: BL.mono, fontSize: 9, color: "#8e8a82", marginTop: 4, letterSpacing: 0.8 }}>
-            HSA OPERATIONS · PROD
-          </div>
-        </div>
+      <AdminSidebar
+        tabs={ADMIN_TABS}
+        tab={tab}
+        setTab={setTab}
+        accent={HSA_BLUE}
+        roleLabel="HSA OPERATIONS · PROD"
+        footer={
+          <SidebarSignOut
+            onLogout={onLogout}
+            meta={`MODE · PREDICT\nOPS · GREEN`}
+          />
+        }
+      />
 
-        <div style={{ padding: "8px", flex: 1 }}>
-          {ADMIN_TABS.map(t => (
-            <button
-              key={t.id}
-              onClick={() => setTab(t.id)}
-              style={{
-                display: "block", width: "100%", textAlign: "left",
-                padding: "8px 12px", borderRadius: 4, marginBottom: 2, cursor: "pointer",
-                background: tab === t.id ? "#2a2723" : "transparent",
-                fontFamily: BL.sans, fontSize: 13, border: "none",
-                color: tab === t.id ? "#fff" : "#bdb8b0",
-                borderLeft: tab === t.id ? `2px solid ${HSA_BLUE}` : "2px solid transparent",
-              }}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
-
-        <div style={{ padding: "12px", borderTop: "1px solid #2a2723" }}>
-          <div style={{ fontFamily: BL.mono, fontSize: 9, color: "#8e8a82", letterSpacing: 0.6, lineHeight: 1.9 }}>
-            MODE · <span style={{ color: "#bdb8b0" }}>PREDICT</span><br />
-            OPS · GREEN · 3 ACTIVE
-          </div>
-          <button
-            onClick={onLogout}
-            style={{
-              marginTop: 8, width: "100%", background: "none", border: "1px solid #2a2723",
-              color: "#8e8a82", borderRadius: 5, padding: "5px 0",
-              cursor: "pointer", fontSize: 11, fontFamily: BL.sans,
-            }}
-          >
-            Sign out
-          </button>
-        </div>
-      </div>
-
-      {/* Main content */}
       <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
-        {/* Top header bar */}
-        <div style={{
-          height: 48, borderBottom: `1px solid ${BL.hair}`,
-          display: "flex", alignItems: "center", justifyContent: "space-between",
-          padding: "0 24px", background: BL.card, flexShrink: 0,
-        }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-            <span style={{ fontFamily: BL.mono, fontSize: 10, color: BL.muted, letterSpacing: 0.8 }}>
-              HSA · NATIONAL OPERATIONS
-            </span>
-            <span style={{ color: BL.faint }}>/</span>
-            <span style={{ fontFamily: BL.mono, fontSize: 10, color: BL.ink }}>
-              {activeLabel.toUpperCase()}
-            </span>
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <span style={{ fontFamily: BL.mono, fontSize: 9, color: BL.muted, letterSpacing: 0.4 }}>
-              {new Date().toLocaleString("en-SG", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
-            </span>
-            <div style={{ width: 1, height: 16, background: BL.hair }} />
-            <button
-              onClick={() => setTab("aprofile")}
-              onMouseEnter={() => setProfileHovered(true)}
-              onMouseLeave={() => setProfileHovered(false)}
-              style={{
-                display: "flex", alignItems: "center", gap: 8,
-                background: profileHovered ? BL.fill : "none",
-                border: `1px solid ${profileHovered ? BL.hair : "transparent"}`,
-                borderRadius: 6, padding: "4px 8px 4px 4px",
-                cursor: "pointer", transition: "all 0.12s",
-              }}
-            >
-              <div style={{
-                width: 28, height: 28, borderRadius: 14, flexShrink: 0,
-                background: tab === "aprofile" ? BL.ink : BL.fill,
-                border: `1px solid ${tab === "aprofile" ? BL.ink : BL.hair}`,
-                display: "flex", alignItems: "center", justifyContent: "center",
-                fontFamily: BL.sans, fontSize: 11, fontWeight: 700,
-                color: tab === "aprofile" ? "#fff" : BL.ink,
-              }}>
-                {initials}
-              </div>
-              <span style={{ fontFamily: BL.sans, fontSize: 12, color: BL.ink, whiteSpace: "nowrap" }}>
-                {displayName}
-              </span>
-            </button>
-          </div>
-        </div>
-
-        {/* Panel content */}
+        <AdminTopBar
+          breadcrumbLeft="HSA · NATIONAL OPERATIONS"
+          breadcrumbRight={activeLabel.toUpperCase()}
+          right={profileBtn}
+        />
         <div style={{ flex: 1, overflowY: "auto", background: BL.paper }}>
-          <div style={{ maxWidth: 1100, padding: "20px 24px" }}>
+          <div style={{ padding: "20px 24px" }}>
             <PanelContent tab={tab} />
           </div>
         </div>
@@ -328,15 +346,12 @@ function useIsMobile() {
   return mobile;
 }
 
-// Shared tab icon (square with rounded corners, matching prototype)
-function TabIcon({ active }) {
+function TabIcon({ tab, active }) {
   return (
-    <div style={{
-      width: 22, height: 22, margin: "0 auto 3px",
-      borderRadius: 5,
-      border: `1.5px solid ${active ? BL.ink : BL.faint}`,
-      background: active ? BL.ink : "transparent",
-    }} />
+    <FontAwesomeIcon
+      icon={active ? tab.solid : tab.outline}
+      style={{ fontSize: 20, color: active ? BL.ink : BL.faint, display: "block" }}
+    />
   );
 }
 
@@ -389,11 +404,10 @@ function DonorDesktopLayout({ tab, setTab, onLogout }) {
                 borderLeft: tab === t.id ? `2px solid ${BL.red}` : "2px solid transparent",
               }}
             >
-              <div style={{
-                width: 16, height: 16, borderRadius: 3, flexShrink: 0,
-                border: `1.5px solid ${tab === t.id ? BL.ink : BL.faint}`,
-                background: tab === t.id ? BL.ink : "transparent",
-              }} />
+              <FontAwesomeIcon
+                icon={tab === t.id ? t.solid : t.outline}
+                style={{ fontSize: 14, color: tab === t.id ? BL.ink : BL.faint, flexShrink: 0, width: 16 }}
+              />
               {t.label}
             </button>
           ))}
@@ -443,7 +457,7 @@ function DonorDesktopLayout({ tab, setTab, onLogout }) {
         {/* Panel */}
         <div style={{ flex: 1, overflowY: "auto", background: BL.paper }}>
           <div style={{ maxWidth: 800, padding: "16px 24px 24px" }}>
-            <PanelContent tab={tab} onLogout={onLogout} />
+            <PanelContent tab={tab} onLogout={onLogout} onNavigate={setTab} />
           </div>
         </div>
       </div>
@@ -457,16 +471,16 @@ function DonorMobileLayout({ tab, setTab, onLogout }) {
       {/* No top bar on mobile — matches prototype (AppHeader in each panel handles identity) */}
 
       {/* Safe area top + 16px base so content never hugs the browser chrome */}
-      <div style={{ padding: "max(16px, env(safe-area-inset-top)) 16px 80px" }}>
-        <PanelContent tab={tab} onLogout={onLogout} />
+      <div style={{ padding: "max(16px, env(safe-area-inset-top)) 16px 96px" }}>
+        <PanelContent tab={tab} onLogout={onLogout} onNavigate={setTab} />
       </div>
 
-      {/* Bottom tab bar — matches prototype TabBar exactly */}
+      {/* Bottom tab bar */}
       <div style={{
         position: "fixed", bottom: 0, left: 0, right: 0,
-        height: 56, background: BL.card, borderTop: `1px solid ${BL.hair}`,
+        height: 72, background: BL.card, borderTop: `1px solid ${BL.hair}`,
         display: "flex", alignItems: "center",
-        paddingBottom: 4, zIndex: 20,
+        paddingBottom: "max(8px, env(safe-area-inset-bottom))", zIndex: 20,
       }}>
         {DONOR_TABS.map(t => {
           const active = tab === t.id;
@@ -475,13 +489,15 @@ function DonorMobileLayout({ tab, setTab, onLogout }) {
               key={t.id}
               onClick={() => setTab(t.id)}
               style={{
-                flex: 1, textAlign: "center", background: "none", border: "none",
-                cursor: "pointer", padding: "6px 0",
+                flex: 1, display: "flex", flexDirection: "column",
+                alignItems: "center", justifyContent: "center",
+                background: "none", border: "none", cursor: "pointer",
+                padding: "6px 8px", gap: 4,
               }}
             >
-              <TabIcon active={active} />
+              <TabIcon tab={t} active={active} />
               <div style={{
-                fontFamily: BL.sans, fontSize: 10, fontWeight: 500,
+                fontFamily: BL.sans, fontSize: 10, fontWeight: active ? 600 : 400,
                 color: active ? BL.ink : BL.faint,
               }}>
                 {t.label}
@@ -494,7 +510,7 @@ function DonorMobileLayout({ tab, setTab, onLogout }) {
   );
 }
 
-// ── Singapore Red Cross layout: red accent, 2 tabs (Manage Slots + Check-in) ─
+// ── Singapore Red Cross layout: red accent ──────────────────────────────────
 function SRCDashboard({ tab, setTab, onLogout }) {
   const [location, setLocation] = useState(null);
   const [locationLoading, setLocationLoading] = useState(true);
@@ -508,62 +524,26 @@ function SRCDashboard({ tab, setTab, onLogout }) {
   }, []);
 
   const sidebar = (
-    <div style={{
-      width: 200, background: "#1a1917", color: "#e9e6e0",
-      display: "flex", flexDirection: "column", flexShrink: 0,
-    }}>
-      <div style={{ padding: "18px 16px 12px" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <div style={{ width: 18, height: 18, borderRadius: 3, background: SRC_RED }} />
-          <span style={{ fontFamily: BL.sans, fontSize: 14, fontWeight: 600 }}>BloodLine</span>
-        </div>
-        <div style={{ fontFamily: BL.mono, fontSize: 9, color: "#8e8a82", marginTop: 4, letterSpacing: 0.8 }}>
-          RED CROSS SINGAPORE · PROD
-        </div>
-      </div>
-
-      <div style={{ padding: "8px", flex: 1 }}>
-        {SRC_TABS.map(t => (
-          <button
-            key={t.id}
-            onClick={() => setTab(t.id)}
-            style={{
-              display: "block", width: "100%", textAlign: "left",
-              padding: "8px 12px", borderRadius: 4, marginBottom: 2, cursor: "pointer",
-              background: tab === t.id ? "#2a2723" : "transparent",
-              fontFamily: BL.sans, fontSize: 13, border: "none",
-              color: tab === t.id ? "#fff" : "#bdb8b0",
-              borderLeft: tab === t.id ? `2px solid ${SRC_RED}` : "2px solid transparent",
-            }}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
-
-      <div style={{ padding: "12px 16px", borderTop: "1px solid #2a2723" }}>
-        <div style={{ fontFamily: BL.mono, fontSize: 9, color: "#8e8a82", marginBottom: 8, letterSpacing: 0.8 }}>
-          {location ?? "SRC STAFF"} · PROD
-        </div>
-        <button
-          onClick={onLogout}
-          style={{
-            width: "100%", background: "none", border: "1px solid #2a2723",
-            color: "#8e8a82", borderRadius: 6, padding: "6px 0",
-            cursor: "pointer", fontSize: 12, fontFamily: BL.sans,
-          }}
-        >
-          Sign out
-        </button>
-      </div>
-    </div>
+    <AdminSidebar
+      tabs={SRC_TABS}
+      tab={tab}
+      setTab={setTab}
+      accent={SRC_RED}
+      roleLabel="RED CROSS SINGAPORE · PROD"
+      footer={
+        <SidebarSignOut
+          onLogout={onLogout}
+          meta={location ? `${location} · PROD` : undefined}
+        />
+      }
+    />
   );
 
   if (locationLoading) {
     return (
       <div style={{ display: "flex", minHeight: "100vh", fontFamily: BL.sans }}>
         {sidebar}
-        <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", background: BL.paper }}>
           <span style={{ fontFamily: BL.sans, color: BL.muted, fontSize: 13 }}>Loading…</span>
         </div>
       </div>
@@ -584,29 +564,13 @@ function SRCDashboard({ tab, setTab, onLogout }) {
   return (
     <div style={{ display: "flex", minHeight: "100vh", fontFamily: BL.sans }}>
       {sidebar}
-
       <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
-        <div style={{
-          height: 48, borderBottom: `1px solid ${BL.hair}`,
-          display: "flex", alignItems: "center", justifyContent: "space-between",
-          padding: "0 24px", background: BL.card, flexShrink: 0,
-        }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-            <span style={{ fontFamily: BL.mono, fontSize: 10, color: BL.muted, letterSpacing: 0.8 }}>
-              RED CROSS SINGAPORE
-            </span>
-            <span style={{ color: BL.faint }}>/</span>
-            <span style={{ fontFamily: BL.mono, fontSize: 10, color: BL.ink }}>
-              {activeLabel.toUpperCase()}
-            </span>
-          </div>
-          <span style={{ fontFamily: BL.sans, fontSize: 12, color: BL.muted }}>
-            {new Date().toLocaleString("en-SG", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
-          </span>
-        </div>
-
+        <AdminTopBar
+          breadcrumbLeft="RED CROSS SINGAPORE"
+          breadcrumbRight={activeLabel.toUpperCase()}
+        />
         <div style={{ flex: 1, overflowY: "auto", background: BL.paper }}>
-          <div style={{ maxWidth: 1100, padding: 24 }}>
+          <div style={{ padding: 24 }}>
             <PanelContent tab={tab} hospitalName={location} />
           </div>
         </div>

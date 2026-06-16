@@ -3,14 +3,19 @@ import { API_URL } from "./config";
 
 async function request(path, options = {}) {
   const token = await getToken();
-  const res = await fetch(`${API_URL}${path}`, {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: token } : {}),
-      ...options.headers,
-    },
-  });
+  let res;
+  try {
+    res = await fetch(`${API_URL}${path}`, {
+      ...options,
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: token } : {}),
+        ...options.headers,
+      },
+    });
+  } catch (e) {
+    throw new Error(`Unable to reach API (${API_URL}${path}). Check network, CORS, and whether the backend is deployed.`);
+  }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
   return data;
@@ -30,8 +35,12 @@ export const updateDonor = (body) =>
 export const activateSurge = (body) =>
   request("/api/v1/surge/activate", { method: "POST", body: JSON.stringify(body) });
 export const getSurgeMonitor = () => request("/api/v1/surge/monitor");
+export const getSurgeReach = (geoTier, bloodTypes) =>
+  request(`/api/v1/surge/reach?geoTier=${encodeURIComponent(geoTier)}&bloodTypes=${encodeURIComponent((bloodTypes ?? []).join(","))}`);
 export const endSurge = (alertId) =>
   request(`/api/v1/surge/${alertId}/end`, { method: "POST" });
+export const respondSurge = (alertId) =>
+  request(`/api/v1/surge/${alertId}/respond`, { method: "POST" });
 
 // Schedule
 export const getDrives = (bloodType) =>
@@ -39,6 +48,8 @@ export const getDrives = (bloodType) =>
 export const getMyBookings = () => request("/api/v1/schedule/bookings");
 export const createBooking = (body) =>
   request("/api/v1/schedule/book", { method: "POST", body: JSON.stringify(body) });
+export const cancelDriveBooking = (driveId) =>
+  request(`/api/v1/schedule/book/${driveId}`, { method: "DELETE" });
 
 // Hospital — profile & directory
 export const getHospitals = () => request("/api/v1/hospitals");
@@ -61,6 +72,7 @@ export const cancelSlotBooking = (slotId) =>
 // Blood drives — hospital creates, admin approves
 export const createDrive = (body) =>
   request("/api/v1/schedule/drives", { method: "POST", body: JSON.stringify(body) });
+export const getMyDrives = () => request("/api/v1/schedule/my-drives");
 export const getHospitalDrives = () => request("/api/v1/hospital/drives");
 export const lookupDonor = (donorId) => request(`/api/v1/hospital/donor?donorId=${encodeURIComponent(donorId)}`);
 export const recordDonation = (body) =>
@@ -82,8 +94,20 @@ export const getDonorSegments = () => request("/api/v1/admin/donors/segments");
 export const getPendingDrives = () => request("/api/v1/admin/drives/pending");
 export const approveDrive = (driveId) => request(`/api/v1/admin/drives/${driveId}/approve`, { method: "POST" });
 export const rejectDrive = (driveId) => request(`/api/v1/admin/drives/${driveId}/reject`, { method: "POST" });
+export const notifyDonorOfRejection = (driveId) =>
+  request(`/api/v1/admin/drives/${driveId}/notify-donor`, { method: "POST" });
+export const getRedCrossPendingDrives = () => request("/api/v1/redcross/drives/pending");
+export const getRedCrossApprovedDrives = () => request("/api/v1/redcross/drives/approved");
+export const approveRedCrossDrive = (driveId) => request(`/api/v1/redcross/drives/${driveId}/approve`, { method: "POST" });
+export const rejectRedCrossDrive = (driveId, reason) =>
+  request(`/api/v1/redcross/drives/${driveId}/reject`, { method: "POST", body: JSON.stringify({ reason }) });
 export const getStockOverview = () => request("/api/v1/admin/stock");
 export const getAllAlerts = () => request("/api/v1/admin/alerts");
 export const getTrafficIncidents = () => request("/api/v1/admin/traffic-incidents");
 export const submitHospitalDemand = (body) =>
   request("/api/v1/admin/demand", { method: "POST", body: JSON.stringify(body) });
+
+// Donor notifications
+export const getNotifications = () => request("/api/v1/donor/notifications");
+export const markNotificationRead = (notifId) =>
+  request(`/api/v1/donor/notifications/${notifId}/read`, { method: "POST" });

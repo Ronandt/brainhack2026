@@ -22,17 +22,17 @@ function Tag({ children, color }) {
   );
 }
 
-function W({ children, style, pad = 20 }) {
+function Card({ children, style, pad = 20 }) {
   return (
-    <div style={{ background: BL.card, border: `1px solid ${BL.hair}`, borderRadius: 6, padding: pad, ...style }}>
+    <div style={{ background: BL.card, boxShadow: "0 1px 10px rgba(0,0,0,0.06), 0 0 0 1px rgba(0,0,0,0.04)", borderRadius: 14, padding: pad, ...style }}>
       {children}
     </div>
   );
 }
 
 const inputStyle = {
-  width: "100%", background: BL.paper, border: `1px solid ${BL.rule}`,
-  borderRadius: 6, padding: "10px 13px", color: BL.ink,
+  width: "100%", background: BL.fill, border: `1px solid ${BL.hair}`,
+  borderRadius: 10, padding: "10px 13px", color: BL.ink,
   fontSize: 14, fontFamily: BL.sans, outline: "none", boxSizing: "border-box",
 };
 
@@ -110,7 +110,7 @@ export default function AdminProfilePanel() {
       ) : (
         <>
           {/* Identity card */}
-          <W style={{ marginBottom: 14, display: "flex", alignItems: "center", gap: 20 }}>
+          <Card style={{ marginBottom: 14, display: "flex", alignItems: "center", gap: 20 }}>
             {/* Avatar */}
             <div style={{
               width: 64, height: 64, borderRadius: 32, flexShrink: 0,
@@ -131,23 +131,23 @@ export default function AdminProfilePanel() {
                 <span style={{
                   fontFamily: BL.mono, fontSize: 9, letterSpacing: 0.6,
                   background: BL.ink, color: "#fff",
-                  padding: "2px 8px", borderRadius: 3, textTransform: "uppercase",
+                  padding: "2px 8px", borderRadius: 6, textTransform: "uppercase",
                 }}>
                   HSA Admin
                 </span>
                 <span style={{
                   fontFamily: BL.mono, fontSize: 9, letterSpacing: 0.6,
                   background: BL.fill, color: BL.muted,
-                  padding: "2px 8px", borderRadius: 3, textTransform: "uppercase",
+                  padding: "2px 8px", borderRadius: 6, textTransform: "uppercase",
                 }}>
                   National Operations
                 </span>
               </div>
             </div>
-          </W>
+          </Card>
 
           {/* Editable fields */}
-          <W style={{ marginBottom: 14 }}>
+          <Card style={{ marginBottom: 14 }}>
             <div style={{ fontFamily: BL.sans, fontSize: 14, fontWeight: 600, color: BL.ink, marginBottom: 2 }}>
               Edit details
             </div>
@@ -191,7 +191,7 @@ export default function AdminProfilePanel() {
                   disabled={saving}
                   style={{
                     padding: "10px 28px", background: saving ? BL.fill : BL.ink,
-                    color: saving ? BL.muted : "#fff", border: "none", borderRadius: 6,
+                    color: saving ? BL.muted : "#fff", border: "none", borderRadius: 10,
                     fontFamily: BL.sans, fontSize: 13, fontWeight: 600,
                     cursor: saving ? "default" : "pointer",
                   }}
@@ -205,11 +205,11 @@ export default function AdminProfilePanel() {
                 )}
               </div>
             </form>
-          </W>
+          </Card>
 
           {/* Read-only account info */}
-          <W pad={0}>
-            <div style={{ padding: "12px 20px", borderBottom: `1px solid ${BL.hair}` }}>
+          <Card pad={0}>
+            <div style={{ padding: "12px 20px", borderBottom: `1px solid ${BL.fill}` }}>
               <div style={{ fontFamily: BL.sans, fontSize: 14, fontWeight: 600, color: BL.ink }}>
                 Account information
               </div>
@@ -225,7 +225,7 @@ export default function AdminProfilePanel() {
               <div key={label} style={{
                 display: "flex", justifyContent: "space-between", alignItems: "center",
                 padding: "13px 20px",
-                borderTop: i > 0 ? `1px solid ${BL.hair}` : "none",
+                borderTop: i > 0 ? `1px solid ${BL.fill}` : "none",
               }}>
                 <span style={{ fontFamily: BL.mono, fontSize: 10, color: BL.muted, textTransform: "uppercase", letterSpacing: 0.4 }}>
                   {label}
@@ -240,7 +240,7 @@ export default function AdminProfilePanel() {
                 </span>
               </div>
             ))}
-          </W>
+          </Card>
         </>
       )}
     </div>

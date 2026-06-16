@@ -109,9 +109,9 @@ function Tag({ children, color }) {
   );
 }
 
-function W({ children, style, pad = 16 }) {
+function Card({ children, style, pad = 16 }) {
   return (
-    <div style={{ background: BL.card, border: `1px solid ${BL.hair}`, borderRadius: 6, padding: pad, ...style }}>
+    <div style={{ background: BL.card, boxShadow: "0 1px 10px rgba(0,0,0,0.06), 0 0 0 1px rgba(0,0,0,0.04)", borderRadius: 14, padding: pad, ...style }}>
       {children}
     </div>
   );
@@ -142,7 +142,7 @@ function StepIndicator({ current }) {
               </span>
             </div>
             {i < steps.length - 1 && (
-              <div style={{ flex: 1, height: 2, background: done ? BL.ink : BL.hair, margin: "0 8px", marginBottom: 20 }} />
+              <div style={{ flex: 1, height: 2, background: done ? BL.ink : BL.fill, margin: "0 8px", marginBottom: 20 }} />
             )}
           </div>
         );
@@ -166,7 +166,7 @@ export default function CheckinPanel() {
   const [scanning,     setScanning]     = useState(false);
 
   const inputStyle = {
-    width: "100%", background: BL.card, border: `1px solid ${BL.rule}`, borderRadius: 6,
+    width: "100%", background: BL.fill, border: `1px solid ${BL.hair}`, borderRadius: 10,
     padding: "10px 12px", color: BL.ink, fontSize: 14, fontFamily: BL.sans, outline: "none",
     boxSizing: "border-box",
   };
@@ -252,7 +252,7 @@ export default function CheckinPanel() {
 
       {/* ── Step 0: Admit ──────────────────────────────────────── */}
       {step === 0 && (
-        <W pad={20}>
+        <Card pad={20}>
           <Tag>Step 1 · Find donor</Tag>
           <div style={{ fontFamily: BL.sans, fontSize: 13, color: BL.muted, marginTop: 6, marginBottom: 16, lineHeight: 1.5 }}>
             Scan the donor's QR code, or enter their ID manually.
@@ -275,9 +275,9 @@ export default function CheckinPanel() {
 
           {/* Divider */}
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
-            <div style={{ flex: 1, height: 1, background: BL.hair }} />
+            <div style={{ flex: 1, height: 1, background: BL.fill }} />
             <span style={{ fontFamily: BL.mono, fontSize: 9, color: BL.faint, letterSpacing: 0.6, textTransform: "uppercase" }}>or enter manually</span>
-            <div style={{ flex: 1, height: 1, background: BL.hair }} />
+            <div style={{ flex: 1, height: 1, background: BL.fill }} />
           </div>
 
           {/* Fallback: manual entry */}
@@ -312,19 +312,19 @@ export default function CheckinPanel() {
               {looking ? "Looking up…" : "Find donor"}
             </button>
           </form>
-        </W>
+        </Card>
       )}
 
       {/* ── Step 1: Blood draw ─────────────────────────────────── */}
       {step === 1 && donor && (
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           {/* Donor card */}
-          <W pad={16}>
+          <Card pad={16}>
             <Tag>Donor admitted</Tag>
             <div style={{ display: "flex", alignItems: "center", gap: 14, marginTop: 12 }}>
               <div style={{
                 width: 48, height: 48, borderRadius: 24, background: BL.fill,
-                border: `1px solid ${BL.hair}`, display: "flex", alignItems: "center",
+                display: "flex", alignItems: "center",
                 justifyContent: "center", fontFamily: BL.sans, fontSize: 18, fontWeight: 600,
                 color: BL.ink, flexShrink: 0,
               }}>
@@ -352,10 +352,10 @@ export default function CheckinPanel() {
                 <Tag color={BL.need.urgent.fg}>⚠ Donor not yet eligible — {donor.daysUntilEligible} days remaining since last donation</Tag>
               </div>
             )}
-          </W>
+          </Card>
 
           {/* Draw details */}
-          <W pad={20}>
+          <Card pad={20}>
             <Tag>Step 2 · Blood draw details</Tag>
             <div style={{ marginTop: 14 }}>
               <label style={labelStyle}>Confirm blood type</label>
@@ -364,7 +364,7 @@ export default function CheckinPanel() {
                   const sel = bloodType === bt;
                   return (
                     <button key={bt} type="button" onClick={() => setBloodType(bt)} style={{
-                      width: 48, height: 48, borderRadius: 6, cursor: "pointer",
+                      width: 48, height: 48, borderRadius: 8, cursor: "pointer",
                       border: sel ? `2px solid ${BL.ink}` : `1px solid ${BL.hair}`,
                       background: sel ? BL.fill : BL.card,
                       fontFamily: BL.mono, fontSize: 12, fontWeight: 600,
@@ -407,8 +407,9 @@ export default function CheckinPanel() {
 
             <div style={{ display: "flex", gap: 8, marginTop: 18 }}>
               <button onClick={() => setStep(0)} style={{
-                padding: "11px 18px", background: "none", border: `1px solid ${BL.hair}`,
-                borderRadius: 6, fontFamily: BL.sans, fontSize: 13, color: BL.muted, cursor: "pointer",
+                padding: "11px 18px", background: "none", border: "none",
+                boxShadow: "0 0 0 1px rgba(0,0,0,0.1)",
+                borderRadius: 8, fontFamily: BL.sans, fontSize: 13, color: BL.muted, cursor: "pointer",
               }}>
                 ← Back
               </button>
@@ -428,14 +429,14 @@ export default function CheckinPanel() {
                 {submitting ? "Recording…" : "Confirm donation →"}
               </button>
             </div>
-          </W>
+          </Card>
         </div>
       )}
 
       {/* ── Step 2: Done ───────────────────────────────────────── */}
       {step === 2 && result && (
         <div>
-          <W pad={20} style={{ textAlign: "center", marginBottom: 14 }}>
+          <Card pad={20} style={{ textAlign: "center", marginBottom: 14 }}>
             <div style={{
               width: 64, height: 64, borderRadius: 32, background: BL.need.ok.bg,
               border: `2px solid ${BL.need.ok.fg}`, margin: "0 auto 16px",
@@ -448,7 +449,7 @@ export default function CheckinPanel() {
             <div style={{ fontFamily: BL.sans, fontSize: 13, color: BL.muted, marginTop: 6 }}>
               {donor?.name}'s impact card has been updated.
             </div>
-          </W>
+          </Card>
 
           <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, marginBottom: 14 }}>
             {[
@@ -456,19 +457,19 @@ export default function CheckinPanel() {
               { l: "Volume",     v: `${result.volumeMl} ml` },
               { l: "Patients",   v: `+${result.patientsReached}` },
             ].map(({ l, v }) => (
-              <W key={l} pad={14} style={{ textAlign: "center" }}>
+              <Card key={l} pad={14} style={{ textAlign: "center" }}>
                 <div style={{ fontFamily: BL.mono, fontSize: 20, fontWeight: 600, color: BL.ink, letterSpacing: -0.4 }}>{v}</div>
                 <div style={{ fontFamily: BL.mono, fontSize: 9, color: BL.muted, marginTop: 4, letterSpacing: 0.4, textTransform: "uppercase" }}>{l}</div>
-              </W>
+              </Card>
             ))}
           </div>
 
-          <W pad={14} style={{ background: BL.fill, marginBottom: 14 }}>
+          <Card pad={14} style={{ background: BL.fill, marginBottom: 14 }}>
             <Tag>Donation ID</Tag>
             <div style={{ fontFamily: BL.mono, fontSize: 11, color: BL.muted, marginTop: 4, wordBreak: "break-all" }}>
               {result.donationId}
             </div>
-          </W>
+          </Card>
 
           <button
             onClick={reset}

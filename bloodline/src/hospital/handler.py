@@ -1,5 +1,7 @@
 import json
 import os
+import urllib.parse
+import urllib.request
 import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -13,12 +15,47 @@ from aws_lambda_powertools.utilities.typing import LambdaContext
 logger = Logger()
 _cfg = Config(connect_timeout=5, read_timeout=5, retries={"max_attempts": 2})
 dynamodb = boto3.resource("dynamodb", config=_cfg)
-hospitals_table    = dynamodb.Table(os.environ["HOSPITALS_TABLE"])
-slots_table        = dynamodb.Table(os.environ["DONATION_SLOTS_TABLE"])
+hospitals_table    = dynamodb.Table(os.environ.get("HOSPITALS_TABLE", "bloodline-hospitals-dev"))
+slots_table        = dynamodb.Table(os.environ.get("DONATION_SLOTS_TABLE", "bloodline-slots-dev"))
 slot_bookings_table = dynamodb.Table(os.environ.get("SLOT_BOOKINGS_TABLE", "bloodline-slot-bookings-dev"))
 donors_table       = dynamodb.Table(os.environ.get("DONORS_TABLE", "bloodline-donors-dev"))
 
 BLOOD_TYPES = ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"]
+
+ONEMAP_SEARCH = "https://www.onemap.gov.sg/api/common/elastic/search"
+# Fixed sites whose names OneMap can't resolve (app labels, not real places).
+KNOWN_COORDS = {
+    "Bloodbank@HSA":          (1.2812, 103.8389),
+    "Bloodbank@Dhoby Ghaut":  (1.2993, 103.8455),
+    "Bloodbank@Woodlands":    (1.4360, 103.7865),
+    "Bloodbank@Westgate":     (1.3338, 103.7430),
+    "Bloodbank@One Punggol":  (1.4050, 103.9020),
+    "HSA Bloodbank":          (1.2812, 103.8389),
+    "Singapore Red Cross":    (1.2966, 103.8485),
+}
+
+
+def _geocode_location(location: str):
+    """Resolve a slot location to (lat, lng) at creation time. Known fixed sites
+    are applied directly; otherwise OneMap (no auth/CORS). Returns (None, None)
+    on failure so a geocode hiccup never blocks slot creation.
+    """
+    if location in KNOWN_COORDS:
+        return KNOWN_COORDS[location]
+    try:
+        qs = urllib.parse.urlencode({
+            "searchVal": location, "returnGeom": "Y",
+            "getAddrDetails": "N", "pageNum": 1,
+        })
+        req = urllib.request.Request(f"{ONEMAP_SEARCH}?{qs}", headers={"User-Agent": "bloodline"})
+        with urllib.request.urlopen(req, timeout=3) as resp:  # noqa: S310 (trusted host)
+            data = json.loads(resp.read().decode())
+        results = data.get("results") or []
+        if results:
+            return float(results[0]["LATITUDE"]), float(results[0]["LONGITUDE"])
+    except Exception:
+        logger.warning("Slot geocode failed (list endpoint will retry)", location=location)
+    return None, None
 
 
 def _response(status_code: int, body: dict) -> dict:
@@ -126,6 +163,13 @@ def _create_slot(event: dict) -> dict:
         if profile.get("lat") is not None:
             lat = profile["lat"]
             lng = profile["lng"]
+
+    # Geocode at creation so the slot has coordinates immediately (the /slots
+    # list endpoint still backfills any that are missing, as a safety net).
+    if lat is None or lng is None:
+        glat, glng = _geocode_location(location)
+        if glat is not None and glng is not None:
+            lat, lng = Decimal(str(glat)), Decimal(str(glng))
 
     date = (body.get("date") or "").strip()
     capacity = body.get("capacity")

@@ -18,6 +18,8 @@ Globals:
         ALERTS_TABLE: !Ref AlertsTable
         DONATION_SLOTS_TABLE: !Ref DonationSlotsTable
         SLOT_BOOKINGS_TABLE: !Ref SlotBookingsTable
+        HOSPITALS_TABLE: !Ref HospitalsTable
+        NOTIFICATIONS_TABLE: !Ref NotificationsTable
         PREDICTIONS_BUCKET: !Ref PredictionsCacheBucket
         SURGE_ALERT_TOPIC: !Ref SurgeAlertTopic
         POWERTOOLS_SERVICE_NAME: bloodline
@@ -36,6 +38,19 @@ Parameters:
     Type: String
     Default: ""
     Description: Optional override for the surge-email call-to-action link (e.g. a custom domain). Leave blank to use the CloudFront PWA URL.
+  VapidPublicKey:
+    Type: String
+    Default: ""
+    Description: VAPID public key (base64url) for Web Push. Must match the key embedded in the frontend.
+  VapidPrivateKey:
+    Type: String
+    Default: ""
+    NoEcho: true
+    Description: VAPID private key (base64url) for signing Web Push JWTs.
+  VapidSubject:
+    Type: String
+    Default: "mailto:bloodlineapps@gmail.com"
+    Description: "VAPID 'sub' contact (mailto or https) sent to push services."
   EnableSms:
     Type: String
     Default: "false"
@@ -153,6 +168,11 @@ Resources:
       GroupName: RedCrossSG
       UserPoolId: !Ref DonorUserPool
       Description: Singapore Red Cross staff — manage drives and check-in
+  # NOTE: the "RedCrossSG" Cognito group already exists in the user pool (created
+  # out-of-band, like BloodBank/HospitalStaff) and has members. CloudFormation
+  # can't create a duplicate — it fails early validation — so we do NOT define it
+  # here. The group is managed manually in Cognito; the app only checks membership.
+
 
 # ---------------------------------------------------------------------------
 # FRONTEND — S3 + CLOUDFRONT
@@ -373,6 +393,25 @@ Resources:
         - AttributeName: slotId
           KeyType: RANGE
 
+  NotificationsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub bloodline-notifications-${Stage}
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: donorId
+          AttributeType: S
+        - AttributeName: notifId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: donorId
+          KeyType: HASH
+        - AttributeName: notifId
+          KeyType: RANGE
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+
 # ---------------------------------------------------------------------------
 # SNS
 # ---------------------------------------------------------------------------
@@ -459,6 +498,8 @@ Resources:
             TableName: !Ref AlertsTable
         - DynamoDBReadPolicy:
             TableName: !Ref DonorsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref HospitalsTable
         - SNSPublishMessagePolicy:
             TopicName: !GetAtt SurgeAlertTopic.TopicName
       Events:
@@ -474,11 +515,23 @@ Resources:
             RestApiId: !Ref BloodlineApi
             Path: /api/v1/surge/monitor
             Method: GET
+        ReachPreview:
+          Type: Api
+          Properties:
+            RestApiId: !Ref BloodlineApi
+            Path: /api/v1/surge/reach
+            Method: GET
         EndSurge:
           Type: Api
           Properties:
             RestApiId: !Ref BloodlineApi
             Path: /api/v1/surge/{alertId}/end
+            Method: POST
+        RespondSurge:
+          Type: Api
+          Properties:
+            RestApiId: !Ref BloodlineApi
+            Path: /api/v1/surge/{alertId}/respond
             Method: POST
 
   NotifyFunction:
@@ -494,10 +547,15 @@ Resources:
           # Defaults to the CloudFront PWA URL; AppUrl param overrides for a custom domain
           APP_URL: !If [HasCustomAppUrl, !Ref AppUrl, !Sub "https://${FrontendDistribution.DomainName}"]
           SMS_ENABLED: !Ref EnableSms
+          VAPID_PUBLIC_KEY: !Ref VapidPublicKey
+          VAPID_PRIVATE_KEY: !Ref VapidPrivateKey
+          VAPID_SUBJECT: !Ref VapidSubject
           SMS_SENDER_ID: !Ref SmsSenderId
       Policies:
         - DynamoDBReadPolicy:
             TableName: !Ref DonorsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref HospitalsTable
         - DynamoDBCrudPolicy:
             TableName: !Ref AlertsTable
         - Statement:
@@ -534,6 +592,13 @@ Resources:
             TableName: !Ref DonationSlotsTable
         - DynamoDBCrudPolicy:
             TableName: !Ref SlotBookingsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref NotificationsTable
+        # Read the booking donor's blood type + credit the booking to a live surge
+        - DynamoDBReadPolicy:
+            TableName: !Ref DonorsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref AlertsTable
       Events:
         ListMyBookings:
           Type: Api
@@ -582,6 +647,30 @@ Resources:
           Properties:
             RestApiId: !Ref BloodlineApi
             Path: /api/v1/schedule/book
+            Method: POST
+        CancelDriveBooking:
+          Type: Api
+          Properties:
+            RestApiId: !Ref BloodlineApi
+            Path: /api/v1/schedule/book/{driveId}
+            Method: DELETE
+        ListMyDrives:
+          Type: Api
+          Properties:
+            RestApiId: !Ref BloodlineApi
+            Path: /api/v1/schedule/my-drives
+            Method: GET
+        GetDonorNotifications:
+          Type: Api
+          Properties:
+            RestApiId: !Ref BloodlineApi
+            Path: /api/v1/donor/notifications
+            Method: GET
+        MarkNotificationRead:
+          Type: Api
+          Properties:
+            RestApiId: !Ref BloodlineApi
+            Path: /api/v1/donor/notifications/{notifId}/read
             Method: POST
 
   RetainFunction:
@@ -652,6 +741,8 @@ Resources:
             TableName: !Sub bloodline-blood-stock-${Stage}
         - DynamoDBCrudPolicy:
             TableName: !Ref PredictionsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref NotificationsTable
       Events:
         GetDonorSegments:
           Type: Api
@@ -676,6 +767,30 @@ Resources:
           Properties:
             RestApiId: !Ref BloodlineApi
             Path: /api/v1/admin/drives/{driveId}/reject
+            Method: POST
+        GetRedCrossPendingDrives:
+          Type: Api
+          Properties:
+            RestApiId: !Ref BloodlineApi
+            Path: /api/v1/redcross/drives/pending
+            Method: GET
+        GetRedCrossApprovedDrives:
+          Type: Api
+          Properties:
+            RestApiId: !Ref BloodlineApi
+            Path: /api/v1/redcross/drives/approved
+            Method: GET
+        ApproveRedCrossDrive:
+          Type: Api
+          Properties:
+            RestApiId: !Ref BloodlineApi
+            Path: /api/v1/redcross/drives/{driveId}/approve
+            Method: POST
+        RejectRedCrossDrive:
+          Type: Api
+          Properties:
+            RestApiId: !Ref BloodlineApi
+            Path: /api/v1/redcross/drives/{driveId}/reject
             Method: POST
         GetStockOverview:
           Type: Api
@@ -713,6 +828,12 @@ Resources:
             RestApiId: !Ref BloodlineApi
             Path: /api/v1/admin/donations
             Method: POST
+        NotifyDonorOfRejection:
+          Type: Api
+          Properties:
+            RestApiId: !Ref BloodlineApi
+            Path: /api/v1/admin/drives/{driveId}/notify-donor
+            Method: POST
 
   HospitalFunction:
     Type: AWS::Serverless::Function
@@ -724,6 +845,7 @@ Resources:
       Environment:
         Variables:
           HOSPITALS_TABLE: !Ref HospitalsTable
+          DONATION_SLOTS_TABLE: !Ref DonationSlotsTable
           SLOT_BOOKINGS_TABLE: !Ref SlotBookingsTable
           DONORS_TABLE: !Ref DonorsTable
       Policies:

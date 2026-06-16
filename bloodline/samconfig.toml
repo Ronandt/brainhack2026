@@ -11,10 +11,13 @@ parallel = true
 
 [default.deploy.parameters]
 capabilities = "CAPABILITY_IAM"
-confirm_changeset = true
+confirm_changeset = false
 resolve_s3 = true
 region = "ap-southeast-1"
-parameter_overrides = "Stage=\"dev\""
+# All stack params live here so `sam deploy` (and deploy.ps1) never silently
+# reset them to defaults. NOTE: VapidPrivateKey is a dev secret — for prod, pass
+# it via an env/secret instead of committing it.
+parameter_overrides = "Stage=\"dev\" SenderEmail=\"bloodlineapps2@gmail.com\" VapidPublicKey=\"BFdwcBTCofYrm-xpjKqP1n3_FYYQEvfInMzwuc1VD1GI7p5ratagCjSlylDKZlSSzKF7lMI3KxE4pqEXFGqnvBo\" VapidPrivateKey=\"sC_OitJYtHAnJV_PlFUvzgK-Ts1X-spiyXUESwgiHP4\" VapidSubject=\"mailto:bloodlineapps@gmail.com\""
 s3_prefix = "bloodline-dev"
 disable_rollback = true
 image_repositories = []

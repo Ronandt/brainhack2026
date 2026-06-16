@@ -1,18 +1,20 @@
 import { useState, useEffect, useMemo, useRef } from "react";
-import { getDrives, getSlots, createBooking, bookSlot, cancelSlotBooking, getMyBookings } from "../api";
+import { getDrives, getSlots, createBooking, bookSlot, cancelSlotBooking, cancelDriveBooking, getMyBookings, createDrive, getMyDrives, getNotifications, markNotificationRead , getDonor} from "../api";
 import { BL } from "../tokens";
+import { BLOODBANK_COORDS, haversineKm, resolveCoords, formatDistance } from "../geo";
+import { DriveCardsSkeleton } from "./Skeleton";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const BLOOD_TYPES   = ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"];
 const INVITE_STATUSES  = ["Critical", "High", "Low"];
-const ORGANIZER_NAME   = "Bryan";
-const TARGET_RSVPS     = 18;
+const TARGET_RSVPS     = 18;   // default invite target
+const MAX_RSVPS        = 100;  // upper limit a donor can set
 const DEFAULT_MAP_CENTER = { lat: 1.3521, lng: 103.8198 };
 const SESSION_TABS     = [
-  { id: "all", label: "All" },
-  { id: "drive", label: "Drives" },
-  { id: "slot", label: "Bloodbank" },
+  { id: "request", label: "Request"   },
+  { id: "drives",  label: "Drives"    },
+  { id: "slot",    label: "Bloodbank" },
 ];
 const MAPCN_STYLE_URL   = "https://tiles.openfreemap.org/styles/liberty";
 const MAPLIBRE_JS_URL   = "https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js";
@@ -27,17 +29,57 @@ const TYPE_BADGE = {
   slot:  { label: "BLOODBANK", bg: "#e0eeff", fg: "#1a5cbf" },
 };
 
+const BANK_INFO = {
+  "Bloodbank@HSA": {
+    address: "11 Outram Road, Singapore 169078",
+    hours: { 0:"9:00am–4:30pm", 1:null, 2:"9:00am–5:00pm", 3:"9:00am–5:00pm", 4:"9:00am–5:00pm", 5:"9:00am–5:00pm", 6:"9:00am–4:30pm" },
+  },
+  "Bloodbank@Dhoby Ghaut": {
+    address: "11 Orchard Road #B1-01, Singapore 238826",
+    hours: { 0:"10:00am–5:00pm", 1:"12:00pm–8:00pm", 2:"12:00pm–8:00pm", 3:"12:00pm–8:00pm", 4:null, 5:"12:00pm–8:00pm", 6:"10:00am–5:00pm" },
+  },
+  "Bloodbank@Woodlands": {
+    address: "900 South Woodlands Drive #05-07, Singapore 730900",
+    hours: { 0:"10:00am–5:00pm", 1:"12:00pm–8:00pm", 2:null, 3:"12:00pm–8:00pm", 4:"12:00pm–8:00pm", 5:"12:00pm–8:00pm", 6:"10:00am–5:00pm" },
+  },
+  "Bloodbank@Westgate": {
+    address: "1 Gateway Drive #10-01, Singapore 608531",
+    hours: { 0:"10:00am–5:00pm", 1:"12:00pm–8:00pm", 2:"12:00pm–8:00pm", 3:null, 4:"12:00pm–8:00pm", 5:"12:00pm–8:00pm", 6:"10:00am–5:00pm" },
+  },
+  "Bloodbank@One Punggol": {
+    address: "1 Punggol Drive #02-38, Singapore 828629",
+    hours: { 0:"10:00am–5:00pm", 1:"12:00pm–8:00pm", 2:null, 3:"12:00pm–8:00pm", 4:"12:00pm–8:00pm", 5:"12:00pm–8:00pm", 6:"10:00am–5:00pm" },
+  },
+};
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function haversineKm(lat1, lon1, lat2, lon2) {
-  const R = 6371, r = Math.PI / 180;
-  const dLat = (lat2 - lat1) * r, dLon = (lon2 - lon1) * r;
-  const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * r) * Math.cos(lat2 * r) * Math.sin(dLon / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 function pickRandom(items) { return items[Math.floor(Math.random() * items.length)]; }
 function coordLabel(lat, lng) { return `${lat.toFixed(5)}, ${lng.toFixed(5)}`; }
+
+function pad2(n) { return String(n).padStart(2, "0"); }
+function todayISO() {
+  const d = new Date();
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+}
+function shiftDays(base, delta) {
+  const d = new Date(`${base}T12:00:00`);
+  d.setDate(d.getDate() + delta);
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+}
+function dateOptionLabel(iso) {
+  const today = todayISO();
+  const tomorrow = shiftDays(today, 1);
+  if (iso === today) return "Today";
+  if (iso === tomorrow) return "Tomorrow";
+  return new Date(`${iso}T12:00:00`).toLocaleDateString("en-SG", { weekday: "short", day: "numeric", month: "short" });
+}
+function bankHoursToday(bankName) {
+  const day = new Date().getDay();
+  return BANK_INFO[bankName]?.hours?.[day] ?? null;
+}
 function nextDateValue() {
   const date = new Date();
   date.setDate(date.getDate() + 1);
@@ -206,47 +248,346 @@ function MapcnLocationMap({ location, onSelect }) {
   );
 }
 
+// ── Bloodbank picker — card grid of 5 banks ──────────────────────────────────
+function BloodbankPicker({ allSlots, hasActiveBooking, onSelect, userCoords }) {
+  const today = todayISO();
+  const banks = Object.keys(BANK_INFO).sort((a, b) => {
+    if (!userCoords) return 0;
+    const ca = BLOODBANK_COORDS[a], cb = BLOODBANK_COORDS[b];
+    const da = ca ? haversineKm(userCoords.lat, userCoords.lng, ca.lat, ca.lng) : Infinity;
+    const db = cb ? haversineKm(userCoords.lat, userCoords.lng, cb.lat, cb.lng) : Infinity;
+    return da - db;
+  });
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      {banks.map(name => {
+        const info    = BANK_INFO[name];
+        const hours   = bankHoursToday(name);
+        const avail   = allSlots.filter(s => s.location === name && s.date === today && (s.booked ?? 0) < (s.capacity ?? 15)).length;
+        const total   = allSlots.filter(s => s.location === name && s.date === today).length;
+        const dimmed  = hasActiveBooking;
+        // Distance from the donor to this bank (once we have a location fix).
+        const bankCoords = BLOODBANK_COORDS[name];
+        const distanceKm = (userCoords && bankCoords)
+          ? haversineKm(userCoords.lat, userCoords.lng, bankCoords.lat, bankCoords.lng)
+          : null;
+
+        return (
+          <button
+            key={name}
+            onClick={() => !dimmed && onSelect(name)}
+            style={{
+              display: "flex", flexDirection: "column", width: "100%", textAlign: "left",
+              background: BL.card, borderRadius: 14, padding: "14px 16px",
+              cursor: dimmed ? "default" : "pointer",
+              opacity: dimmed ? 0.38 : 1,
+              boxShadow: "0 1px 8px rgba(0,0,0,0.05), 0 0 0 1px rgba(0,0,0,0.04)",
+              transition: "box-shadow 0.12s, opacity 0.15s",
+              minHeight: 102,
+              border: "none",
+            }}
+            onMouseEnter={e => { if (!dimmed) e.currentTarget.style.boxShadow = "0 4px 16px rgba(0,0,0,0.10), 0 0 0 1px rgba(0,0,0,0.06)"; }}
+            onMouseLeave={e => { e.currentTarget.style.boxShadow = "0 1px 8px rgba(0,0,0,0.05), 0 0 0 1px rgba(0,0,0,0.04)"; }}
+          >
+            {/* Top row: info + slot count */}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flex: 1 }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontFamily: BL.sans, fontSize: 15, fontWeight: 700, color: BL.ink, marginBottom: 3 }}>
+                  {name}
+                </div>
+                <div style={{
+                  fontFamily: BL.sans, fontSize: 12, color: BL.muted, marginBottom: 6,
+                  whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+                }}>
+                  {info.address}
+                </div>
+                <div style={{ fontFamily: BL.mono, fontSize: 10, color: hours ? BL.muted : BL.need.critical.fg, letterSpacing: 0.3 }}>
+                  {hours ? `Today  ${hours}` : "Closed today"}
+                  {distanceKm != null && (
+                    <span style={{ color: BL.red, fontWeight: 600 }}>{"  ·  "}{formatDistance(distanceKm)} away</span>
+                  )}
+                </div>
+              </div>
+              {total > 0 && (
+                <div style={{ textAlign: "right", flexShrink: 0, marginLeft: 12 }}>
+                  <div style={{ fontFamily: BL.mono, fontSize: 18, fontWeight: 700, color: avail > 0 ? BL.ink : BL.muted }}>
+                    {avail}
+                  </div>
+                  <div style={{ fontFamily: BL.mono, fontSize: 9, color: BL.muted, letterSpacing: 0.4, textTransform: "uppercase" }}>
+                    open
+                  </div>
+                </div>
+              )}
+            </div>
+            {/* Progress bar always rendered to keep height consistent */}
+            <div style={{ marginTop: 10, height: 3, background: BL.fill, borderRadius: 2, overflow: "hidden" }}>
+              {total > 0 && (
+                <div style={{ height: "100%", width: `${Math.round(100 - (avail / total) * 100)}%`, background: BL.ink, borderRadius: 2 }} />
+              )}
+            </div>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── Bloodbank slot list — shown after a bank is selected ─────────────────────
+function BloodbankSlotList({ bankName, dateStr, slots, booked, bookingState, onBook, onCancel }) {
+  const [selected, setSelected] = useState(null);
+  const info  = BANK_INFO[bankName] ?? {};
+  const day   = new Date(`${dateStr}T12:00:00`).getDay();
+  const hours = info.hours?.[day] ?? null;
+
+  const sorted = [...slots].sort((a, b) => (a.startTime ?? "").localeCompare(b.startTime ?? ""));
+
+  const selSlot = sorted.find(s => s.slotId === selected);
+  const isBooked   = selSlot ? !!booked[selSlot._id ?? selSlot.slotId] : false;
+  const isFull     = selSlot ? (selSlot.booked ?? 0) >= (selSlot.capacity ?? 15) : false;
+  const bs         = selSlot ? (bookingState[selSlot._id ?? selSlot.slotId] ?? {}) : {};
+
+  return (
+    <div>
+      {/* Bank header */}
+      <div style={{ marginBottom: 16 }}>
+        <div style={{ fontFamily: BL.sans, fontSize: 18, fontWeight: 700, color: BL.ink, letterSpacing: -0.3 }}>
+          {bankName}
+        </div>
+        <div style={{ fontFamily: BL.sans, fontSize: 12, color: BL.muted, marginTop: 2 }}>
+          {info.address}
+        </div>
+        <div style={{ fontFamily: BL.mono, fontSize: 10, color: hours ? BL.muted : BL.need.critical.fg, marginTop: 4, letterSpacing: 0.3 }}>
+          {hours ? hours : "Closed on this day"}
+        </div>
+      </div>
+
+      {/* Slot list */}
+      {sorted.length === 0 ? (
+        <div style={{ fontFamily: BL.sans, fontSize: 13, color: BL.faint, padding: "20px 0" }}>
+          No slots available for this day.
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 16 }}>
+          {sorted.map((slot, i) => {
+            const cap      = slot.capacity ?? 15;
+            const taken    = slot.booked ?? 0;
+            const full     = taken >= cap;
+            const thisId   = slot.slotId;
+            const isSel    = selected === thisId;
+            const alreadyBooked = !!booked[slot._id ?? slot.slotId];
+
+            return (
+              <button
+                key={thisId}
+                onClick={() => !full && !alreadyBooked && setSelected(isSel ? null : thisId)}
+                style={{
+                  display: "flex", alignItems: "center", gap: 14,
+                  width: "100%", textAlign: "left",
+                  background: isSel ? BL.ink : alreadyBooked ? BL.need.ok.bg : BL.card,
+                  border: "none",
+                  borderRadius: 12, padding: "12px 14px",
+                  cursor: full && !alreadyBooked ? "default" : "pointer",
+                  opacity: full && !alreadyBooked ? 0.4 : 1,
+                  boxShadow: isSel
+                    ? "0 4px 16px rgba(0,0,0,0.18)"
+                    : alreadyBooked
+                      ? `0 2px 10px ${BL.need.ok.fg}18`
+                      : "0 1px 6px rgba(0,0,0,0.05), 0 0 0 1px rgba(0,0,0,0.04)",
+                  transition: "background 0.12s, box-shadow 0.12s",
+                }}
+              >
+                {/* Slot number */}
+                <div style={{
+                  width: 28, height: 28, borderRadius: 14, flexShrink: 0,
+                  background: isSel ? "rgba(255,255,255,0.15)" : BL.fill,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  fontFamily: BL.mono, fontSize: 11, fontWeight: 700,
+                  color: isSel ? "#fff" : BL.muted,
+                }}>
+                  {i + 1}
+                </div>
+
+                {/* Time */}
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontFamily: BL.mono, fontSize: 14, fontWeight: 700, color: isSel ? "#fff" : BL.ink }}>
+                    {slot.startTime}–{slot.endTime}
+                  </div>
+                  {alreadyBooked && (
+                    <div style={{ fontFamily: BL.sans, fontSize: 11, color: BL.need.ok.fg, marginTop: 2 }}>
+                      ✓ Booked
+                    </div>
+                  )}
+                </div>
+
+                {/* Capacity */}
+                <div style={{ textAlign: "right", flexShrink: 0 }}>
+                  <div style={{
+                    fontFamily: BL.mono, fontSize: 12, fontWeight: 600,
+                    color: full ? BL.need.critical.fg : isSel ? "#fff" : BL.muted,
+                  }}>
+                    {taken}/{cap}
+                  </div>
+                  {full && (
+                    <div style={{ fontFamily: BL.mono, fontSize: 9, color: BL.need.critical.fg, letterSpacing: 0.4, textTransform: "uppercase" }}>
+                      Full
+                    </div>
+                  )}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Book button */}
+      {selected && selSlot && (
+        <div style={{
+          position: "sticky", bottom: 80, left: 0, right: 0,
+          background: BL.paper, paddingTop: 8,
+          borderTop: `1px solid ${BL.hair}`,
+        }}>
+          {isBooked ? (
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+              <span style={{ fontFamily: BL.sans, fontSize: 13, color: BL.need.ok.fg, fontWeight: 600 }}>
+                ✓ Booked — {selSlot.startTime}–{selSlot.endTime}
+              </span>
+              <button
+                onClick={() => { onCancel(selSlot._id ?? selSlot.slotId, "slot"); setSelected(null); }}
+                style={{ background: "none", border: `1px solid ${BL.hair}`, borderRadius: 6, color: BL.muted, fontFamily: BL.sans, fontSize: 12, padding: "6px 14px", cursor: "pointer" }}
+              >
+                Cancel
+              </button>
+            </div>
+          ) : (
+            <>
+              <div style={{ fontFamily: BL.sans, fontSize: 12, color: BL.muted, marginBottom: 8 }}>
+                Slot {sorted.indexOf(selSlot) + 1} · {selSlot.startTime}–{selSlot.endTime} · {(selSlot.capacity ?? 15) - (selSlot.booked ?? 0)} spots left
+              </div>
+              <button
+                onClick={() => onBook({ ...selSlot, _id: selSlot.slotId, _type: "slot" })}
+                disabled={bs.loading}
+                style={{
+                  width: "100%", padding: "13px 0", background: BL.ink, color: "#fff",
+                  border: "none", borderRadius: 12, fontFamily: BL.sans,
+                  fontSize: 15, fontWeight: 700, cursor: bs.loading ? "default" : "pointer",
+                  opacity: bs.loading ? 0.6 : 1, minHeight: 50,
+                  boxShadow: "0 4px 16px rgba(0,0,0,0.14)",
+                }}
+              >
+                {bs.loading ? "Booking…" : "Book this slot →"}
+              </button>
+              {bs.error && <div style={{ fontFamily: BL.sans, fontSize: 12, color: BL.need.critical.fg, marginTop: 6 }}>{bs.error}</div>}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Squad RSVP modal ──────────────────────────────────────────────────────────
 
 function SquadRsvpModal({ item, onClose }) {
   const [copied, setCopied] = useState(false);
-  const msg = `Hey squad! Let's donate blood together 🩸\n\n${item.name || item.location}\n${item.date}${item.startTime ? ` · ${item.startTime}` : ""}\n${item.location}\n\nRSVP here: <link>`;
+  const title = item.name || item.location;
+  const when = `${dateOptionLabel(item.date)}${item.startTime ? ` · ${item.startTime}${item.endTime ? `–${item.endTime}` : ""}` : ""}`;
+  const spotsLeft = Math.max(0, (item.capacity ?? 0) - (item.booked ?? 0));
+  const msg =
+    `Hey squad! Let's donate blood together 🩸\n\n` +
+    `📍 ${title}${item.name && item.location ? ` — ${item.location}` : ""}\n` +
+    `🗓 ${when}\n\n` +
+    `Book "${title}" under Book a session in the Bloodline app. ` +
+    `Takes ~15 min and every unit can save up to 3 lives.`;
+  const waHref = `https://wa.me/?text=${encodeURIComponent(msg)}`;
 
-  function share() {
-    if (navigator.share) {
-      navigator.share({ title: "Squad blood donation", text: msg, url: "<link>" }).catch(() => {});
-    } else {
-      navigator.clipboard?.writeText(msg).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2500); });
-    }
+  function copy() {
+    navigator.clipboard?.writeText(msg).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }
+
+  function shareNative() {
+    if (navigator.share) navigator.share({ title: "Squad blood donation", text: msg }).catch(() => {});
+    else copy();
   }
 
   return (
-    <div style={{ position: "fixed", inset: 0, zIndex: 50, background: "rgba(26,25,23,0.32)", display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
-      <div style={{ width: "100%", maxWidth: 480, background: BL.card, borderRadius: "12px 12px 0 0", padding: 24, paddingBottom: "max(24px, env(safe-area-inset-bottom))" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
+    <div
+      onClick={onClose}
+      style={{ position: "fixed", inset: 0, zIndex: 50, background: "rgba(26,25,23,0.4)", display: "flex", alignItems: "flex-end", justifyContent: "center" }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{
+          width: "100%", maxWidth: 480, background: BL.paper, borderRadius: "18px 18px 0 0",
+          padding: "10px 20px 0", paddingBottom: "max(20px, env(safe-area-inset-bottom))",
+          boxShadow: "0 -8px 40px rgba(26,25,23,0.25)",
+        }}
+      >
+        {/* Grab handle */}
+        <div style={{ width: 36, height: 4, borderRadius: 2, background: BL.hair, margin: "0 auto 14px" }} />
+
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14 }}>
           <div>
-            <div style={{ fontFamily: BL.sans, fontSize: 16, fontWeight: 600, color: BL.ink, marginBottom: 3 }}>Squad RSVP</div>
-            <Tag>Invite your whole squad at once</Tag>
+            <div style={{ fontFamily: BL.sans, fontSize: 17, fontWeight: 700, color: BL.ink, letterSpacing: -0.3 }}>Invite your squad</div>
+            <div style={{ fontFamily: BL.sans, fontSize: 12, color: BL.muted, marginTop: 2 }}>Donating together doubles the show-up rate</div>
           </div>
-          <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 18, color: BL.muted, cursor: "pointer", lineHeight: 1 }}>×</button>
+          <button onClick={onClose} aria-label="Close" style={{ background: BL.fill, border: "none", borderRadius: 14, width: 28, height: 28, fontSize: 15, color: BL.muted, cursor: "pointer", lineHeight: 1 }}>×</button>
         </div>
 
-        <div style={{ background: BL.fill, borderRadius: 8, padding: 14, marginBottom: 16, fontFamily: BL.sans, fontSize: 13, color: BL.ink, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>
+        {/* Event summary card */}
+        <div style={{ background: BL.card, borderRadius: 12, padding: "12px 14px", marginBottom: 12, boxShadow: "0 1px 8px rgba(0,0,0,0.05), 0 0 0 1px rgba(0,0,0,0.04)" }}>
+          <div style={{ fontFamily: BL.sans, fontSize: 14, fontWeight: 700, color: BL.ink }}>{title}</div>
+          {item.name && item.location && (
+            <div style={{ fontFamily: BL.sans, fontSize: 12, color: BL.muted, marginTop: 2 }}>{item.location}</div>
+          )}
+          <div style={{ fontFamily: BL.mono, fontSize: 10, color: BL.muted, marginTop: 5, letterSpacing: 0.3 }}>
+            {when}
+            {item._distanceKm != null && <span style={{ color: BL.red, fontWeight: 600 }}>{" · "}{formatDistance(item._distanceKm)} away</span>}
+            {spotsLeft > 0 && <span>{" · "}{spotsLeft} spots left</span>}
+          </div>
+        </div>
+
+        {/* Message preview — chat-bubble style so it reads as "what they'll receive" */}
+        <div style={{ fontFamily: BL.mono, fontSize: 9, letterSpacing: 0.6, textTransform: "uppercase", color: BL.faint, marginBottom: 6 }}>Message preview</div>
+        <div style={{
+          background: "#e7f8d4", borderRadius: "12px 12px 12px 4px", padding: "11px 13px", marginBottom: 16,
+          fontFamily: BL.sans, fontSize: 13, color: "#2b3a20", lineHeight: 1.55, whiteSpace: "pre-wrap",
+          boxShadow: "0 1px 3px rgba(0,0,0,0.06)",
+        }}>
           {msg}
         </div>
 
-        <button
-          onClick={share}
+        {/* Actions: WhatsApp first (it's Singapore), then copy / native share */}
+        <a
+          href={waHref}
+          target="_blank"
+          rel="noreferrer"
           style={{
-            width: "100%", padding: "13px 0",
-            background: BL.ink, color: "#fff", border: "none", borderRadius: 8,
-            fontFamily: BL.sans, fontSize: 14, fontWeight: 600, cursor: "pointer", minHeight: 50,
+            display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+            width: "100%", padding: "13px 0", boxSizing: "border-box",
+            background: "#25D366", color: "#fff", borderRadius: 12, textDecoration: "none",
+            fontFamily: BL.sans, fontSize: 14, fontWeight: 700, minHeight: 50,
+            boxShadow: "0 4px 14px rgba(37,211,102,0.35)",
           }}
         >
-          {copied ? "Copied to clipboard ✓" : "Share with squad →"}
-        </button>
-        <div style={{ fontFamily: BL.sans, fontSize: 12, color: BL.faint, textAlign: "center", marginTop: 8 }}>
-          Opens WhatsApp, Messages, or any share sheet
+          Share on WhatsApp →
+        </a>
+        <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+          <button
+            onClick={copy}
+            style={{ flex: 1, padding: "11px 0", background: BL.card, border: `1px solid ${BL.hair}`, borderRadius: 10, fontFamily: BL.sans, fontSize: 13, fontWeight: 600, color: copied ? BL.need.ok.fg : BL.ink, cursor: "pointer", minHeight: 44 }}
+          >
+            {copied ? "Copied ✓" : "Copy message"}
+          </button>
+          <button
+            onClick={shareNative}
+            style={{ flex: 1, padding: "11px 0", background: BL.card, border: `1px solid ${BL.hair}`, borderRadius: 10, fontFamily: BL.sans, fontSize: 13, fontWeight: 600, color: BL.ink, cursor: "pointer", minHeight: 44 }}
+          >
+            More options…
+          </button>
         </div>
       </div>
     </div>
@@ -255,7 +596,7 @@ function SquadRsvpModal({ item, onClose }) {
 
 // ── Host a Drive bubble ───────────────────────────────────────────────────────
 
-function HostDriveBubble({ onInviteSent }) {
+function HostDriveBubble() {
   const [show,         setShow]         = useState(false);
   const [step,         setStep]         = useState("group");
   const [group,        setGroup]        = useState("");
@@ -268,9 +609,15 @@ function HostDriveBubble({ onInviteSent }) {
   const [locationResults, setLocationResults] = useState([]);
   const [locationStatus, setLocationStatus] = useState("");
   const [locationLoading, setLocationLoading] = useState(false);
+  const [submitState,  setSubmitState]  = useState({});
+  const [targetRsvps,  setTargetRsvps]  = useState(TARGET_RSVPS);
+  const [organizerName, setOrganizerName] = useState("");
   const inviteStatus    = useMemo(() => pickRandom(INVITE_STATUSES), []);
-  const totalMembers    = useMemo(() => 96 + Math.floor(Math.random() * 65), []);
   const activeLocation  = selectedLocation ?? mapCenter;
+
+  useEffect(() => {
+    getDonor().then(d => setOrganizerName(d.name ?? "")).catch(() => {});
+  }, []);
   const selectedDateLabel = dateLabel(selectedDate);
   const selectedDateTimeLabel = selectedDate && selectedTime
     ? `${selectedDateLabel} · ${timeLabel(selectedTime)}`
@@ -291,7 +638,7 @@ function HostDriveBubble({ onInviteSent }) {
     );
   }, [show, selectedLocation]);
 
-  function close() { setShow(false); setStep("group"); }
+  function close() { setShow(false); setStep("group"); setSubmitState({}); }
   function goBack() {
     if (step === "review") { setStep("blood"); return; }
     if (step === "blood") { setStep("time"); return; }
@@ -323,25 +670,9 @@ function HostDriveBubble({ onInviteSent }) {
     };
     setSelectedLocation(next);
     setMapCenter(next);
-
-    if (!place.needsReverseGeocode) return;
-
-    try {
-      const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lng)}&zoom=18&addressdetails=1`);
-      if (!res.ok) throw new Error("Reverse geocode failed");
-      const data = await res.json();
-      setSelectedLocation(prev => (
-        prev && prev.lat === lat && prev.lng === lng
-          ? { ...prev, label: streetLabel(data, fallback) }
-          : prev
-      ));
-    } catch {
-      setSelectedLocation(prev => (
-        prev && prev.lat === lat && prev.lng === lng
-          ? { ...prev, label: fallback }
-          : prev
-      ));
-    }
+    // No client-side reverse geocoding: OneMap's reverse endpoint needs an auth
+    // token and Nominatim blocks browser origins (CORS). Tapped points keep a
+    // coordinate label; use the search box to attach a named location.
   }
 
   function useCurrentLocation() {
@@ -368,12 +699,22 @@ function HostDriveBubble({ onInviteSent }) {
     setLocationLoading(true);
     setLocationStatus("");
     try {
-      const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=5&countrycodes=sg&q=${encodeURIComponent(q)}`);
+      // OneMap (Singapore gov) — CORS-friendly, no auth needed for search, unlike
+      // Nominatim which blocks browser origins and rate-limits (429).
+      const res = await fetch(`https://www.onemap.gov.sg/api/common/elastic/search?searchVal=${encodeURIComponent(q)}&returnGeom=Y&getAddrDetails=Y&pageNum=1`);
       if (!res.ok) throw new Error("Search failed");
       const data = await res.json();
-      setLocationResults(data);
-      if (data[0]) selectLocation(data[0]);
-      if (!data.length) setLocationStatus("No locations found. Try a nearby landmark or address.");
+      const results = (data.results ?? []).slice(0, 5).map((r, i) => ({
+        place_id: `${r.LATITUDE},${r.LONGITUDE}-${i}`,
+        display_name: r.ADDRESS || r.SEARCHVAL,
+        label: r.SEARCHVAL || r.ADDRESS,
+        lat: Number(r.LATITUDE),
+        lng: Number(r.LONGITUDE),
+        lon: Number(r.LONGITUDE),
+      }));
+      setLocationResults(results);
+      if (results[0]) selectLocation(results[0]);
+      if (!results.length) setLocationStatus("No locations found. Try a nearby landmark or address.");
     } catch {
       setLocationStatus("Location search is unavailable right now.");
     } finally {
@@ -381,14 +722,29 @@ function HostDriveBubble({ onInviteSent }) {
     }
   }
 
-  function send()  {
+  async function send()  {
     if (!selectedDate || !selectedTime) return;
-    onInviteSent({ driveId: `hosted-${Date.now()}`, _type: "drive", name: `${group} blood drive`, date: selectedDateLabel, startTime: selectedTime, location: group, booked: 0, capacity: TARGET_RSVPS });
-    close();
+    setSubmitState({ loading: true });
+    try {
+      await createDrive({
+        name: `${group} blood drive`,
+        location: group,
+        date: selectedDate,
+        startTime: selectedTime,
+        capacity: targetRsvps,
+        lat: selectedLocation?.lat,
+        lng: selectedLocation?.lng,
+        acceptedBloodTypes: selectedBloodTypes.length > 0 ? selectedBloodTypes : BLOOD_TYPES,
+        notes: `Donor-hosted drive request. Inviting ${selectedBloodTypeLabel} donors.`,
+      });
+      setSubmitState({ done: true });
+    } catch (e) {
+      setSubmitState({ error: e.message });
+    }
   }
 
   return (
-    <div style={{ background: BL.card, border: `1px solid ${BL.hair}`, borderRadius: 8, padding: "14px 16px" }}>
+    <div style={{ background: BL.card, borderRadius: 14, padding: "14px 16px", boxShadow: "0 1px 8px rgba(0,0,0,0.05), 0 0 0 1px rgba(0,0,0,0.04)" }}>
       <div style={{ fontFamily: BL.mono, fontSize: 10, fontWeight: 700, color: BL.red, letterSpacing: 0.8, textTransform: "uppercase", marginBottom: 5 }}>HOST A DRIVE</div>
       <div style={{ fontFamily: BL.sans, fontSize: 14, fontWeight: 600, color: BL.ink, marginBottom: 3 }}>Mobilise your workplace, school, or RC</div>
       <div style={{ fontFamily: BL.sans, fontSize: 12, color: BL.muted, lineHeight: 1.45 }}>We'll coordinate a mobile unit with HSA on your behalf</div>
@@ -555,21 +911,43 @@ function HostDriveBubble({ onInviteSent }) {
               <div>
                 <div style={{ background: BL.fill, border: `1px solid ${BL.hair}`, borderRadius: 8, padding: 14, fontFamily: BL.sans, fontSize: 13, color: BL.ink, lineHeight: 1.55, marginBottom: 14 }}>
                   <div style={{ fontWeight: 700, marginBottom: 6 }}>Preview</div>
-                  {ORGANIZER_NAME} is organising a blood drive at {group}, {selectedDateTimeLabel}. Inviting <b>{selectedBloodTypeLabel}</b> donors — {selectedBloodTypeLabel} is currently at <b>{inviteStatus}</b> nationally. Tap to RSVP — about 15 min.
+                  {organizerName || "You"} {organizerName ? "is" : "are"} organising a blood drive at {group}, {selectedDateTimeLabel}. Inviting <b>{selectedBloodTypeLabel}</b> donors — {selectedBloodTypeLabel} is currently at <b>{inviteStatus}</b> nationally. Tap to RSVP — about 15 min.
                 </div>
                 <div style={{ background: BL.card, border: `1px solid ${BL.hair}`, borderRadius: 8, padding: 14, marginBottom: 14 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "baseline", marginBottom: 10 }}>
-                    <span style={{ fontFamily: BL.sans, fontSize: 13, color: BL.ink }}><b>14 {selectedBloodTypeLabel}</b> eligible · {totalMembers} total members</span>
-                    <span style={{ fontFamily: BL.mono, fontSize: 10, fontWeight: 700, color: BL.red, letterSpacing: 0.4, textTransform: "uppercase", flexShrink: 0 }}>need {TARGET_RSVPS} RSVPs</span>
-                  </div>
-                  <div style={{ height: 6, background: BL.fill, borderRadius: 3, overflow: "hidden" }}>
-                    <div style={{ height: "100%", width: 0, background: BL.red, borderRadius: 3 }} />
+                  <label style={{ fontFamily: BL.sans, fontSize: 13, color: BL.ink, fontWeight: 600, display: "block", marginBottom: 8 }}>
+                    How many people do you want to invite?
+                  </label>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <button type="button" aria-label="Fewer"
+                      onClick={() => setTargetRsvps(n => Math.max(1, n - 1))}
+                      style={{ width: 34, height: 34, borderRadius: 6, border: `1px solid ${BL.hair}`, background: "#fff", color: BL.ink, fontSize: 18, cursor: "pointer" }}>−</button>
+                    <input
+                      type="number" min={1} max={MAX_RSVPS} value={targetRsvps}
+                      onChange={e => setTargetRsvps(Math.min(MAX_RSVPS, Math.max(1, parseInt(e.target.value, 10) || 1)))}
+                      style={{ width: 70, height: 34, textAlign: "center", borderRadius: 6, border: `1px solid ${BL.hair}`, fontFamily: BL.mono, fontSize: 15, fontWeight: 700, color: BL.ink, background: "#fff" }}
+                    />
+                    <button type="button" aria-label="More"
+                      onClick={() => setTargetRsvps(n => Math.min(MAX_RSVPS, n + 1))}
+                      style={{ width: 34, height: 34, borderRadius: 6, border: `1px solid ${BL.hair}`, background: "#fff", color: BL.ink, fontSize: 18, cursor: "pointer" }}>+</button>
+                    <span style={{ fontFamily: BL.mono, fontSize: 10, color: BL.muted, marginLeft: 4 }}>people · max {MAX_RSVPS}</span>
                   </div>
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
                   <button onClick={() => setStep("blood")} style={{ padding: "10px 12px", background: "#fff", color: BL.ink, border: `1px solid ${BL.ink}`, borderRadius: 6, fontFamily: BL.sans, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>Edit</button>
-                  <button onClick={send} style={{ padding: "10px 12px", background: BL.ink, color: "#fff", border: `1px solid ${BL.ink}`, borderRadius: 6, fontFamily: BL.sans, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>Send Invite</button>
+                  <button disabled={submitState.loading || submitState.done} onClick={send} style={{ padding: "10px 12px", background: submitState.done ? BL.need.ok.fg : BL.ink, color: "#fff", border: `1px solid ${submitState.done ? BL.need.ok.fg : BL.ink}`, borderRadius: 6, fontFamily: BL.sans, fontSize: 13, fontWeight: 700, cursor: submitState.loading || submitState.done ? "default" : "pointer", opacity: submitState.loading ? 0.6 : 1 }}>
+                    {submitState.loading ? "Submitting…" : submitState.done ? "Submitted" : "Send Invite"}
+                  </button>
                 </div>
+                {submitState.done && (
+                  <div style={{ marginTop: 10, background: BL.need.ok.bg, border: `1px solid ${BL.need.ok.fg}44`, borderRadius: 6, padding: "9px 10px", fontFamily: BL.sans, fontSize: 12, color: BL.ink, lineHeight: 1.4 }}>
+                    Drive sent to the HSA admin queue. Donors will see it under Book a session after approval.
+                  </div>
+                )}
+                {submitState.error && (
+                  <div style={{ marginTop: 10, fontFamily: BL.sans, fontSize: 12, color: BL.need.critical.fg }}>
+                    {submitState.error}
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -585,17 +963,38 @@ export default function DonorDrivesPanel() {
   const [items,        setItems]        = useState([]);
   const [loading,      setLoading]      = useState(true);
   const [error,        setError]        = useState("");
-  const [sessionTab,   setSessionTab]   = useState("all");
-  const [locationFilter, setLocationFilter] = useState("all"); // "all" | "nearby"
+  const [sessionTab,   setSessionTab]   = useState("request");
+  const [locationFilter, setLocationFilter] = useState("all"); // "all" | radius km (5 | 10 | 15)
   const [userCoords,   setUserCoords]   = useState(null);
   const [locError,     setLocError]     = useState("");
+  const [geoCache,     setGeoCache]     = useState({}); // location name → {lat,lng} | null
   const [bookingState, setBookingState] = useState({});
   const [booked,       setBooked]       = useState({}); // { [id]: "slot" | "drive" } — ALL of the donor's active bookings
   const [squadItem,    setSquadItem]    = useState(null);
+  const [selectedBank, setSelectedBank] = useState(null);
+  const [bbDateStr,    setBbDateStr]    = useState(todayISO());
+  const [myDrives,          setMyDrives]          = useState([]);
+  const [notifications,     setNotifications]     = useState([]);
+  const [dismissedDriveIds, setDismissedDriveIds] = useState(new Set());
+
+  // Generate next 7 date options for the bloodbank date filter
+  const bbDateOptions = useMemo(() => {
+    const base = todayISO();
+    return Array.from({ length: 7 }, (_, i) => shiftDays(base, i));
+  }, []);
 
   useEffect(() => {
     loadAll();
     refreshBookings();
+    getMyDrives().then(d => setMyDrives(d.drives ?? [])).catch(() => {});
+    getNotifications().then(d => setNotifications(d.notifications ?? [])).catch(() => {});
+    // Silently fetch geolocation on mount so distance sorting is ready immediately
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        pos => setUserCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+        () => {} // ignore denial — distance sort simply won't apply
+      );
+    }
   }, []);
 
   // Track every booking the donor has, not just the first — otherwise already-booked
@@ -633,33 +1032,74 @@ export default function DonorDrivesPanel() {
     }
   }
 
-  function requestNearby() {
+  // Coordinates are geocoded + persisted server-side now (in /slots and /drives),
+  // so the client no longer geocodes — it just reads item.lat/lng (avoids the
+  // browser hammering OneMap/Nominatim and getting 429-rate-limited).
+
+  function requestNearby(radiusKm) {
     if (!navigator.geolocation) { setLocError("Geolocation not supported by your browser."); return; }
     setLocError("");
     navigator.geolocation.getCurrentPosition(
-      pos => { setUserCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude }); setLocationFilter("nearby"); },
+      pos => { setUserCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude }); setLocationFilter(radiusKm); },
       ()  => { setLocError("Location access denied. Enable it in browser settings."); }
     );
   }
 
   function handleFilterToggle(f) {
-    if (f === "nearby") { requestNearby(); return; }
-    setLocationFilter("all");
+    if (f === "all") { setLocationFilter("all"); return; }
+    // f is a radius in km — reuse the existing location fix if we already have one
+    if (userCoords) { setLocationFilter(f); return; }
+    requestNearby(f);
   }
 
-  const tabItems = sessionTab === "all"
-    ? items
-    : items.filter(item => item._type === sessionTab);
+  // When coords are available, sort everything by distance (nearest first).
+  // Items with no lat/lng go at the end, sorted by date among themselves.
+  const byDistance = (a, b) => {
+    if (!userCoords) return 0;
+    const dA = (a.lat != null && a.lng != null) ? haversineKm(userCoords.lat, userCoords.lng, a.lat, a.lng) : Infinity;
+    const dB = (b.lat != null && b.lng != null) ? haversineKm(userCoords.lat, userCoords.lng, b.lat, b.lng) : Infinity;
+    if (dA !== dB) return dA - dB;
+    return (a.date ?? "").localeCompare(b.date ?? "");
+  };
 
-  const displayItems = locationFilter === "nearby" && userCoords
-    ? tabItems.filter(item => item.lat != null && item.lng != null && haversineKm(userCoords.lat, userCoords.lng, item.lat, item.lng) <= 5)
-    : tabItems;
+  const tabItems = (
+    sessionTab === "drives" ? items.filter(item => item._type === "drive") :
+    sessionTab === "slot"   ? items.filter(item => item._type === "slot")  : []
+  ).slice().sort(byDistance);
+
+  // Attach a distance (km) to each session from the donor's location, resolving
+  // bloodbank slots via their location name.
+  const itemsWithDistance = tabItems.map(item => {
+    const coords = resolveCoords(item, geoCache);
+    const distanceKm = (userCoords && coords)
+      ? haversineKm(userCoords.lat, userCoords.lng, coords.lat, coords.lng)
+      : null;
+    return { ...item, _distanceKm: distanceKm };
+  });
+
+  const filteredItems = typeof locationFilter === "number" && userCoords
+    ? itemsWithDistance.filter(item => item._distanceKm != null && item._distanceKm <= locationFilter)
+    : itemsWithDistance;
+
+  // Sort by proximity (nearest first) once we know where the donor is; sessions
+  // with no resolvable location fall to the bottom. Otherwise keep date order.
+  const displayItems = userCoords
+    ? [...filteredItems].sort((a, b) => {
+        if (a._distanceKm == null) return 1;
+        if (b._distanceKm == null) return -1;
+        return a._distanceKm - b._distanceKm;
+      })
+    : filteredItems;
 
   const sessionCounts = useMemo(() => ({
-    all: items.length,
-    drive: items.filter(item => item._type === "drive").length,
-    slot: items.filter(item => item._type === "slot").length,
-  }), [items]);
+    request: myDrives.filter(d => !dismissedDriveIds.has(d.driveId)).length || undefined,
+    drives:  items.filter(item => item._type === "drive").length,
+    slot:    items.filter(item => item._type === "slot").length,
+  }), [items, myDrives, dismissedDriveIds]);
+
+  function dismissDrive(driveId) {
+    setDismissedDriveIds(prev => new Set([...prev, driveId]));
+  }
 
   const isBooked = Object.keys(booked).length > 0;
 
@@ -686,11 +1126,12 @@ export default function DonorDrivesPanel() {
   }
 
   async function cancelBooking(id, type) {
-    // Slot bookings persist server-side — must be deleted there, or re-booking
-    // hits "you already have a booking for this slot". Drive bookings are local-only.
-    if (type === "slot" && id) {
+    // Both slot and drive bookings persist server-side and must be deleted there,
+    // or re-booking hits "you already have a booking" / the row reappears on reload.
+    if (id) {
       try {
-        await cancelSlotBooking(id);
+        if (type === "slot") await cancelSlotBooking(id);
+        else await cancelDriveBooking(id);
       } catch (e) {
         const gone = e.message?.includes("not found") || e.message?.includes("404");
         if (!gone) {
@@ -706,8 +1147,6 @@ export default function DonorDrivesPanel() {
     loadAll(); // re-sync slot capacity counts
   }
 
-  function addHostedDrive(drive) { setItems(prev => [drive, ...prev]); }
-
   return (
     <div>
       <AppHeader
@@ -715,172 +1154,336 @@ export default function DonorDrivesPanel() {
         title="Book a session"
       />
 
-      {/* Session type tabs */}
-      <div style={{ display: "flex", gap: 6, marginBottom: 14, borderBottom: `1px solid ${BL.hair}` }}>
-        {SESSION_TABS.map(t => {
-          const active = sessionTab === t.id;
-          return (
+      {/* ── Sticky header: tabs + filters ───────────────────────────── */}
+      <div style={{
+        position: "sticky", top: 0, zIndex: 10,
+        background: BL.paper,
+        marginLeft: -16, marginRight: -16, padding: "0 16px",
+        paddingBottom: 10,
+        borderBottom: `1px solid ${BL.hair}`,
+        boxShadow: "0 2px 8px rgba(0,0,0,0.04)",
+      }}>
+        {/* Session type tabs */}
+        <div style={{ display: "flex", gap: 6, marginBottom: 10, borderBottom: `1px solid ${BL.hair}` }}>
+          {SESSION_TABS.map(t => {
+            const active = sessionTab === t.id;
+            return (
+              <button
+                key={t.id}
+                onClick={() => setSessionTab(t.id)}
+                style={{
+                  padding: "9px 12px 8px", background: "none", border: "none",
+                  borderBottom: `2px solid ${active ? BL.red : "transparent"}`,
+                  fontFamily: BL.sans, fontSize: 13,
+                  fontWeight: active ? 700 : 500,
+                  color: active ? BL.ink : BL.muted, cursor: "pointer",
+                }}
+              >
+                {t.label}
+                <span style={{ marginLeft: 6, fontFamily: BL.mono, fontSize: 10, color: active ? BL.red : BL.faint }}>
+                  {sessionCounts[t.id]}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Filter row */}
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+          {sessionTab === "slot" && selectedBank && (
             <button
-              key={t.id}
-              onClick={() => setSessionTab(t.id)}
+              onClick={() => setSelectedBank(null)}
               style={{
-                padding: "9px 12px 8px",
-                background: "none",
-                border: "none",
-                borderBottom: `2px solid ${active ? BL.red : "transparent"}`,
-                fontFamily: BL.sans,
-                fontSize: 13,
-                fontWeight: active ? 700 : 500,
-                color: active ? BL.ink : BL.muted,
-                cursor: "pointer",
+                padding: "6px 14px", borderRadius: 20, fontFamily: BL.sans, fontSize: 12, cursor: "pointer",
+                border: `1px solid ${BL.hair}`, background: "none", color: BL.muted,
+                display: "flex", alignItems: "center", gap: 5,
               }}
             >
-              {t.label}
-              <span style={{ marginLeft: 6, fontFamily: BL.mono, fontSize: 10, color: active ? BL.red : BL.faint }}>
-                {sessionCounts[t.id]}
-              </span>
+              ← Back
             </button>
-          );
-        })}
+          )}
+          {sessionTab === "drives" && [["all", "All"], [5, "Within 5 km"], [10, "10 km"], [15, "15 km"]].map(([val, label]) => (
+            <button
+              key={val}
+              onClick={() => handleFilterToggle(val)}
+              style={{
+                padding: "6px 16px", borderRadius: 20, fontFamily: BL.sans, fontSize: 12, cursor: "pointer",
+                border: `1px solid ${locationFilter === val ? BL.ink : BL.hair}`,
+                background: locationFilter === val ? BL.ink : "none",
+                color: locationFilter === val ? "#fff" : BL.muted,
+              }}
+            >
+              {label}
+            </button>
+          ))}
+          {sessionTab === "slot" && selectedBank && (
+            <select
+              value={bbDateStr}
+              onChange={e => setBbDateStr(e.target.value)}
+              style={{
+                padding: "6px 16px", borderRadius: 20, fontFamily: BL.sans, fontSize: 12, cursor: "pointer",
+                border: `1px solid ${BL.hair}`, background: "none", color: BL.muted,
+                appearance: "none", WebkitAppearance: "none", outline: "none",
+              }}
+            >
+              {bbDateOptions.map(iso => (
+                <option key={iso} value={iso}>{dateOptionLabel(iso)}</option>
+              ))}
+            </select>
+          )}
+        </div>
       </div>
+
+      {/* Scrollable content starts here */}
+      <div style={{ paddingTop: 14 }}>
 
       {/* Active booking banner */}
       {isBooked && (
-        <div style={{ background: BL.need.ok.bg, border: `1px solid ${BL.need.ok.fg}44`, borderRadius: 6, padding: "10px 14px", marginBottom: 14, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+        <div style={{
+          background: BL.need.ok.bg, borderRadius: 14, padding: "12px 14px", marginBottom: 14,
+          display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10,
+          boxShadow: `0 2px 12px ${BL.need.ok.fg}18`,
+        }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <span>✓</span>
-            <span style={{ fontFamily: BL.sans, fontSize: 13, color: BL.ink, fontWeight: 500 }}>You have an active booking</span>
+            <div style={{
+              width: 28, height: 28, borderRadius: 14, background: BL.need.ok.fg,
+              display: "flex", alignItems: "center", justifyContent: "center",
+              color: "#fff", fontSize: 13, fontWeight: 700, flexShrink: 0,
+            }}>✓</div>
+            <div>
+              <div style={{ fontFamily: BL.sans, fontSize: 13, color: BL.ink, fontWeight: 600 }}>You have an active booking</div>
+              <div style={{ fontFamily: BL.sans, fontSize: 11, color: BL.muted, marginTop: 1 }}>Cancel to change your appointment</div>
+            </div>
           </div>
-          <button onClick={cancelBooking} style={{ background: "none", border: `1px solid ${BL.need.ok.fg}`, borderRadius: 5, color: BL.need.ok.fg, fontFamily: BL.sans, fontSize: 12, padding: "4px 12px", cursor: "pointer" }}>Cancel it</button>
+          <button onClick={() => { const e = Object.entries(booked)[0]; if (e) cancelBooking(e[0], e[1]); }} style={{
+            background: "#fff", border: "none", borderRadius: 8,
+            color: BL.need.ok.fg, fontFamily: BL.sans, fontSize: 12, fontWeight: 600,
+            padding: "6px 14px", cursor: "pointer", flexShrink: 0,
+            boxShadow: `0 1px 4px ${BL.need.ok.fg}20`,
+          }}>Cancel</button>
         </div>
       )}
 
-      {/* Location filter */}
-      <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
-        {[["all", "All"], ["nearby", "Within 5 km"]].map(([val, label]) => (
-          <button
-            key={val}
-            onClick={() => handleFilterToggle(val)}
-            style={{
-              padding: "6px 16px", borderRadius: 20, fontFamily: BL.sans, fontSize: 12, cursor: "pointer",
-              border: `1px solid ${locationFilter === val ? BL.ink : BL.hair}`,
-              background: locationFilter === val ? BL.ink : "none",
-              color: locationFilter === val ? "#fff" : BL.muted,
-            }}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-      {locError && <div style={{ fontFamily: BL.sans, fontSize: 12, color: BL.need.critical.fg, marginBottom: 10 }}>{locError}</div>}
+      {locError && sessionTab === "drives" && <div style={{ fontFamily: BL.sans, fontSize: 12, color: BL.need.critical.fg, marginBottom: 10 }}>{locError}</div>}
 
-      {loading && <div style={{ fontFamily: BL.sans, color: BL.muted, fontSize: 13, marginBottom: 12 }}>Loading…</div>}
+      {loading && sessionTab === "drives" && <DriveCardsSkeleton />}
       {error   && <div style={{ fontFamily: BL.sans, color: BL.need.critical.fg, fontSize: 13, marginBottom: 12 }}>{error}</div>}
-      {!loading && displayItems.length === 0 && (
-        <div style={{ fontFamily: BL.sans, color: BL.faint, fontSize: 13, marginBottom: 12 }}>
-          {locationFilter === "nearby" ? "No sessions within 5 km of your location." : `No upcoming ${sessionTab === "slot" ? "bloodbank slots" : sessionTab === "drive" ? "drives" : "sessions"} found.`}
-        </div>
+
+      {/* ── Bloodbank tab ───────────────────────────────────────────── */}
+      {sessionTab === "slot" && (
+        selectedBank ? (
+          <BloodbankSlotList
+            bankName={selectedBank}
+            dateStr={bbDateStr}
+            slots={items.filter(s => s._type === "slot" && s.location === selectedBank && s.date === bbDateStr)}
+            booked={booked}
+            bookingState={bookingState}
+            onBook={book}
+            onCancel={cancelBooking}
+          />
+        ) : (
+          <BloodbankPicker
+            allSlots={items.filter(s => s._type === "slot")}
+            hasActiveBooking={isBooked}
+            onSelect={bank => { setSelectedBank(bank); setBbDateStr(todayISO()); }}
+            userCoords={userCoords}
+          />
+        )
       )}
 
-      {/* Host a Drive CTA */}
-      {sessionTab !== "slot" && (
-        <div style={{ marginBottom: 18 }}>
-          <HostDriveBubble onInviteSent={addHostedDrive} />
-        </div>
-      )}
-
-      {/* Cards */}
-      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-        {displayItems.map(item => {
-          const pct          = item.capacity > 0 ? (item.booked / item.capacity) * 100 : 0;
-          const almostFull   = pct > 80;
-          const isThisBooked = !!booked[item._id];
-          const isOtherBooked = isBooked && !isThisBooked;
-          const bs           = bookingState[item._id] ?? {};
-          const badge        = TYPE_BADGE[item._type] ?? TYPE_BADGE.drive;
-
-          return (
-            <div
-              key={item._id}
-              style={{
-                background: isThisBooked ? BL.need.ok.bg : BL.card,
-                border: `1px solid ${isThisBooked ? BL.need.ok.fg + "55" : BL.hair}`,
-                borderRadius: 6, padding: 14,
-                opacity: isOtherBooked ? 0.45 : 1,
-              }}
-            >
-              {/* Header row */}
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
+      {/* ── Request tab ─────────────────────────────────────────────── */}
+      {sessionTab === "request" && (
+        <>
+          {/* Unread notifications */}
+          {notifications.filter(n => !n.read).map(n => {
+            const isApproved = n.type === "drive_approved";
+            const accent = isApproved ? BL.need.ok : BL.need.critical;
+            return (
+              <div key={n.notifId} style={{
+                background: accent.bg, borderRadius: 12, padding: "10px 14px",
+                marginBottom: 10, display: "flex", justifyContent: "space-between", alignItems: "flex-start",
+                boxShadow: `0 0 0 1px ${accent.fg}22`,
+              }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontFamily: BL.sans, fontSize: 14, fontWeight: 600, color: BL.ink, marginBottom: 2 }}>
-                    {item.name || item.location}
+                  <div style={{ fontFamily: BL.sans, fontSize: 13, color: BL.ink, lineHeight: 1.4 }}>{n.message}</div>
+                  {n.reason && <div style={{ fontFamily: BL.sans, fontSize: 12, color: BL.muted, marginTop: 3 }}>Reason: {n.reason}</div>}
+                </div>
+                <button
+                  onClick={() => {
+                    markNotificationRead(n.notifId).catch(() => {});
+                    setNotifications(prev => prev.map(x => x.notifId === n.notifId ? { ...x, read: true } : x));
+                  }}
+                  style={{ background: "none", border: "none", cursor: "pointer", color: BL.muted, fontSize: 16, marginLeft: 10, flexShrink: 0, padding: 0 }}
+                >✕</button>
+              </div>
+            );
+          })}
+
+          {/* Host-a-drive form */}
+          <div style={{ marginBottom: 20 }}>
+            <HostDriveBubble />
+          </div>
+
+          {/* My drive requests */}
+          {(() => {
+            const STATUS_MAP = {
+              pending_approval:          { label: "Waiting for HSA",   fg: BL.muted,            bg: BL.fill       },
+              pending_redcross_approval: { label: "Sent to Red Cross", fg: "#b86a00",           bg: "#fff4e0"      },
+              redcross_rejected:         { label: "Red Cross declined",fg: BL.need.critical.fg, bg: BL.need.critical.bg },
+              rejected:                  { label: "Declined",          fg: BL.need.critical.fg, bg: BL.need.critical.bg },
+              upcoming:                  { label: "Approved — live!",  fg: BL.need.ok.fg,       bg: BL.need.ok.bg  },
+              cancelled:                 { label: "Cancelled",         fg: BL.faint,            bg: BL.fill        },
+            };
+            const visible = myDrives.filter(d => !dismissedDriveIds.has(d.driveId));
+            const isDismissable = s => ["rejected", "redcross_rejected", "cancelled"].includes(s);
+            if (visible.length === 0 && myDrives.length === 0) return null;
+            return (
+              <div>
+                <div style={{ fontFamily: BL.mono, fontSize: 10, color: BL.muted, letterSpacing: 0.8, textTransform: "uppercase", marginBottom: 8 }}>
+                  My requests
+                </div>
+                {visible.length === 0 ? (
+                  <div style={{ fontFamily: BL.sans, fontSize: 13, color: BL.faint }}>All cleared.</div>
+                ) : visible.map(drive => {
+                  const badge = STATUS_MAP[drive.status] ?? { label: drive.status, fg: BL.muted, bg: BL.fill };
+                  const canDismiss = isDismissable(drive.status);
+                  return (
+                    <div key={drive.driveId} style={{
+                      background: BL.card, borderRadius: 12, padding: "12px 14px", marginBottom: 8,
+                      boxShadow: "0 1px 8px rgba(0,0,0,0.05), 0 0 0 1px rgba(0,0,0,0.04)",
+                    }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontFamily: BL.sans, fontSize: 14, fontWeight: 600, color: BL.ink }}>{drive.name}</div>
+                          <div style={{ fontFamily: BL.mono, fontSize: 10, color: BL.muted, marginTop: 2 }}>
+                            {drive.date}{drive.location ? ` · ${drive.location}` : ""}
+                          </div>
+                          <div style={{ fontFamily: BL.mono, fontSize: 10, color: BL.ink, marginTop: 3 }}>
+                            {drive.booked ?? 0} / {drive.capacity ?? "?"} joined
+                          </div>
+                        </div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+                          <span style={{
+                            fontFamily: BL.mono, fontSize: 9, letterSpacing: 0.5, textTransform: "uppercase",
+                            fontWeight: 700, background: badge.bg, color: badge.fg, padding: "3px 8px", borderRadius: 6,
+                          }}>{badge.label}</span>
+                          {canDismiss && (
+                            <button
+                              onClick={() => dismissDrive(drive.driveId)}
+                              title="Clear"
+                              style={{ background: "none", border: "none", cursor: "pointer", color: BL.faint, fontSize: 15, padding: 0, lineHeight: 1 }}
+                            >✕</button>
+                          )}
+                        </div>
+                      </div>
+                      {drive.status === "redcross_rejected" && drive.redCrossRejectedReason && (
+                        <div style={{ marginTop: 8, padding: "7px 10px", background: BL.need.critical.bg, borderRadius: 8, fontFamily: BL.sans, fontSize: 12, color: BL.need.critical.fg, lineHeight: 1.4 }}>
+                          Red Cross: {drive.redCrossRejectedReason}
+                        </div>
+                      )}
+                      {drive.status === "rejected" && (
+                        <div style={{ marginTop: 8, padding: "7px 10px", background: BL.need.critical.bg, borderRadius: 8, fontFamily: BL.sans, fontSize: 12, color: BL.need.critical.fg }}>
+                          This request was not approved by HSA.
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })()}
+        </>
+      )}
+
+      {/* ── Drives tab ──────────────────────────────────────────────── */}
+      {sessionTab === "drives" && (
+        <>
+          {!loading && displayItems.length === 0 && (
+            <div style={{ fontFamily: BL.sans, color: BL.faint, fontSize: 13, marginBottom: 12 }}>
+              {typeof locationFilter === "number" ? `No drives within ${locationFilter} km of your location.` : "No upcoming drives found."}
+            </div>
+          )}
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {displayItems.map(item => {
+              const pct           = item.capacity > 0 ? (item.booked / item.capacity) * 100 : 0;
+              const almostFull    = pct > 80;
+              const isThisBooked  = !!booked[item._id];
+              const isOtherBooked = isBooked && !isThisBooked;
+              const bs            = bookingState[item._id] ?? {};
+              const badge         = TYPE_BADGE[item._type] ?? TYPE_BADGE.drive;
+              return (
+                <div
+                  key={item._id}
+                  style={{
+                    background: isThisBooked ? BL.need.ok.bg : BL.card,
+                    borderRadius: 14, padding: 16,
+                    opacity: isOtherBooked ? 0.45 : 1,
+                    boxShadow: isThisBooked
+                      ? `0 2px 14px ${BL.need.ok.fg}18`
+                      : "0 1px 8px rgba(0,0,0,0.05), 0 0 0 1px rgba(0,0,0,0.04)",
+                  }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontFamily: BL.sans, fontSize: 14, fontWeight: 600, color: BL.ink, marginBottom: 2 }}>
+                        {item.name || item.location}
+                      </div>
+                      {item.name && item.location && (
+                        <div style={{ fontFamily: BL.sans, fontSize: 12, color: BL.muted, marginBottom: 2 }}>{item.location}</div>
+                      )}
+                      <div style={{ fontFamily: BL.mono, fontSize: 10, color: BL.muted, letterSpacing: 0.4 }}>
+                        {item.date}{item.startTime ? ` · ${item.startTime}${item.endTime ? `–${item.endTime}` : ""}` : ""}
+                        {item._distanceKm != null && (
+                          <span style={{ color: BL.red, fontWeight: 600 }}>{" · "}{formatDistance(item._distanceKm)} away</span>
+                        )}
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", gap: 6, alignItems: "center", marginLeft: 10, flexShrink: 0 }}>
+                      <span style={{ fontFamily: BL.mono, fontSize: 9, letterSpacing: 0.5, textTransform: "uppercase", fontWeight: 700, background: badge.bg, color: badge.fg, padding: "3px 8px", borderRadius: 6 }}>
+                        {badge.label}
+                      </span>
+                      {isThisBooked && <Tag color={BL.need.ok.fg} bg={`${BL.need.ok.fg}18`}>Booked</Tag>}
+                    </div>
                   </div>
-                  {item.name && item.location && (
-                    <div style={{ fontFamily: BL.sans, fontSize: 12, color: BL.muted, marginBottom: 2 }}>
-                      {item.location}
+                  <div style={{ marginBottom: 14 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+                      <span style={{ fontFamily: BL.mono, fontSize: 9, letterSpacing: 0.5, textTransform: "uppercase", color: almostFull ? BL.need.urgent.fg : BL.muted }}>
+                        {item.booked ?? 0} / {item.capacity ?? "?"} slots
+                      </span>
+                      {almostFull && <span style={{ fontFamily: BL.mono, fontSize: 9, letterSpacing: 0.5, textTransform: "uppercase", color: BL.need.urgent.fg }}>Almost full</span>}
+                    </div>
+                    <div style={{ height: 4, background: BL.fill, borderRadius: 4, overflow: "hidden" }}>
+                      <div style={{ height: "100%", width: `${Math.min(100, pct)}%`, background: isThisBooked ? BL.need.ok.fg : almostFull ? BL.need.urgent.fg : BL.ink, borderRadius: 4, transition: "width 0.3s" }} />
+                    </div>
+                  </div>
+                  {isThisBooked ? (
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                      <span style={{ fontFamily: BL.sans, fontSize: 13, color: BL.need.ok.fg, fontWeight: 600 }}>✓ You're booked — see you there!</span>
+                      <button onClick={() => cancelBooking(item._id, item._type)} style={{ background: "#fff", border: "none", borderRadius: 8, color: BL.muted, fontFamily: BL.sans, fontSize: 12, padding: "5px 14px", cursor: "pointer", boxShadow: "0 1px 4px rgba(0,0,0,0.08)" }}>Cancel</button>
+                    </div>
+                  ) : isOtherBooked ? (
+                    <div style={{ fontFamily: BL.sans, fontSize: 12, color: BL.faint }}>Cancel your current booking to RSVP here</div>
+                  ) : (
+                    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                      <button onClick={() => book(item)} disabled={bs.loading} style={{ padding: "10px 20px", background: BL.ink, color: "#fff", border: "none", borderRadius: 10, fontFamily: BL.sans, fontSize: 13, fontWeight: 600, cursor: bs.loading ? "default" : "pointer", opacity: bs.loading ? 0.5 : 1, minHeight: 40 }}>
+                        {bs.loading ? "Booking…" : "RSVP"}
+                      </button>
+                      <button onClick={() => setSquadItem(item)} style={{ padding: "10px 16px", background: BL.fill, border: "none", borderRadius: 10, fontFamily: BL.sans, fontSize: 13, color: BL.ink, cursor: "pointer", minHeight: 40 }}>
+                        Squad RSVP
+                      </button>
+                      {bs.error && <span style={{ fontFamily: BL.sans, fontSize: 12, color: BL.need.critical.fg }}>{bs.error}</span>}
                     </div>
                   )}
-                  <div style={{ fontFamily: BL.mono, fontSize: 10, color: BL.muted, letterSpacing: 0.4 }}>
-                    {item.date}{item.startTime ? ` · ${item.startTime}` : ""}
-                  </div>
                 </div>
-                <div style={{ display: "flex", gap: 6, alignItems: "center", marginLeft: 10, flexShrink: 0 }}>
-                  {/* Type badge */}
-                  <span style={{ fontFamily: BL.mono, fontSize: 9, letterSpacing: 0.6, textTransform: "uppercase", fontWeight: 700, background: badge.bg, color: badge.fg, padding: "2px 7px", borderRadius: 3 }}>
-                    {badge.label}
-                  </span>
-                  {isThisBooked && <Tag color={BL.need.ok.fg} bg={`${BL.need.ok.fg}18`}>Booked</Tag>}
-                </div>
-              </div>
-
-              {/* Capacity bar */}
-              <div style={{ marginBottom: 12 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                  <span style={{ fontFamily: BL.mono, fontSize: 9, letterSpacing: 0.6, textTransform: "uppercase", color: almostFull ? BL.need.urgent.fg : BL.muted }}>
-                    {item.booked ?? 0} / {item.capacity ?? "?"} slots
-                  </span>
-                  {almostFull && <span style={{ fontFamily: BL.mono, fontSize: 9, letterSpacing: 0.6, textTransform: "uppercase", color: BL.need.urgent.fg }}>Almost full</span>}
-                </div>
-                <div style={{ height: 4, background: BL.fill, borderRadius: 2, overflow: "hidden" }}>
-                  <div style={{ height: "100%", width: `${Math.min(100, pct)}%`, background: isThisBooked ? BL.need.ok.fg : almostFull ? BL.need.urgent.fg : BL.ink, borderRadius: 2 }} />
-                </div>
-              </div>
-
-              {/* Actions */}
-              {isThisBooked ? (
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                  <span style={{ fontFamily: BL.sans, fontSize: 13, color: BL.need.ok.fg, fontWeight: 600 }}>✓ You're booked — see you there!</span>
-                  <button onClick={() => cancelBooking(item._id, item._type)} style={{ background: "none", border: `1px solid ${BL.hair}`, borderRadius: 5, color: BL.muted, fontFamily: BL.sans, fontSize: 12, padding: "5px 12px", cursor: "pointer" }}>Cancel</button>
-                </div>
-              ) : isOtherBooked ? (
-                <div style={{ fontFamily: BL.sans, fontSize: 12, color: BL.faint }}>Cancel your current booking to {item._type === "slot" ? "book" : "RSVP"} here</div>
-              ) : (
-                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                  <button
-                    onClick={() => book(item)}
-                    disabled={bs.loading}
-                    style={{ padding: "9px 20px", background: BL.ink, color: "#fff", border: "none", borderRadius: 6, fontFamily: BL.sans, fontSize: 13, fontWeight: 600, cursor: bs.loading ? "default" : "pointer", opacity: bs.loading ? 0.5 : 1, minHeight: 38 }}
-                  >
-                    {bs.loading ? "Booking…" : item._type === "slot" ? "Book" : "RSVP"}
-                  </button>
-                  {item._type !== "slot" && (
-                    <button
-                      onClick={() => setSquadItem(item)}
-                      style={{ padding: "9px 16px", background: "none", border: `1px solid ${BL.hair}`, borderRadius: 6, fontFamily: BL.sans, fontSize: 13, color: BL.ink, cursor: "pointer", minHeight: 38 }}
-                    >
-                      Squad RSVP
-                    </button>
-                  )}
-                  {bs.error && <span style={{ fontFamily: BL.sans, fontSize: 12, color: BL.need.critical.fg }}>{bs.error}</span>}
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
+              );
+            })}
+          </div>
+        </>
+      )}
 
       {/* Squad RSVP modal */}
       {squadItem && <SquadRsvpModal item={squadItem} onClose={() => setSquadItem(null)} />}
+      </div>{/* end scrollable content */}
     </div>
   );
 }

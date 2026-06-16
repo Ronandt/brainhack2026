@@ -1,7 +1,10 @@
 import json
 import os
+import urllib.parse
+import urllib.request
 import uuid
 from datetime import datetime, timezone
+from decimal import Decimal
 
 import boto3
 from boto3.dynamodb.conditions import Attr, Key
@@ -16,6 +19,192 @@ drives_table = dynamodb.Table(os.environ["BLOOD_DRIVES_TABLE"])
 bookings_table = dynamodb.Table(os.environ["BOOKINGS_TABLE"])
 slots_table = dynamodb.Table(os.environ["DONATION_SLOTS_TABLE"])
 slot_bookings_table = dynamodb.Table(os.environ["SLOT_BOOKINGS_TABLE"])
+donors_table = dynamodb.Table(os.environ["DONORS_TABLE"])
+alerts_table = dynamodb.Table(os.environ["ALERTS_TABLE"])
+notifs_table = dynamodb.Table(os.environ.get("NOTIFICATIONS_TABLE", f"bloodline-notifications-{os.environ.get('STAGE', 'dev')}"))
+
+ONEMAP_SEARCH = "https://www.onemap.gov.sg/api/common/elastic/search"
+NOMINATIM_SEARCH = "https://nominatim.openstreetmap.org/search"
+
+# Singapore bounding box — any stored/geocoded coordinate outside this is corrupt
+# (bad geocode match or swapped lat/lng) and must not drive distance labels.
+SG_LAT = (1.13, 1.50)
+SG_LNG = (103.55, 104.12)
+# Bump when the geocode pipeline improves: rows marked failed by an older
+# pipeline (flag != current version) get retried once with the new one.
+GEOCODE_VERSION = 2
+
+# Fixed sites whose names OneMap can't resolve (they're app labels, not places).
+# Coordinates are applied directly so these always have a location for proximity.
+KNOWN_COORDS = {
+    "Bloodbank@HSA":          (1.2812, 103.8389),
+    "Bloodbank@Dhoby Ghaut":  (1.2993, 103.8455),
+    "Bloodbank@Woodlands":    (1.4360, 103.7865),
+    "Bloodbank@Westgate":     (1.3338, 103.7430),
+    "Bloodbank@One Punggol":  (1.4050, 103.9020),
+    "HSA Bloodbank":          (1.2812, 103.8389),
+    "Singapore Red Cross":    (1.2966, 103.8485),
+}
+
+
+def _in_singapore(lat: float, lng: float) -> bool:
+    return SG_LAT[0] <= lat <= SG_LAT[1] and SG_LNG[0] <= lng <= SG_LNG[1]
+
+
+def _geocode_onemap(location: str):
+    """Geocode a location name to (lat, lng) via OneMap (server-side, no CORS).
+
+    Returns (lat, lng) on a hit, (None, None) on a genuine no-match. Raises on a
+    transient error (timeout / 429 / network) so the caller can retry later.
+    """
+    qs = urllib.parse.urlencode({
+        "searchVal": location, "returnGeom": "Y",
+        "getAddrDetails": "N", "pageNum": 1,
+    })
+    req = urllib.request.Request(f"{ONEMAP_SEARCH}?{qs}", headers={"User-Agent": "bloodline"})
+    with urllib.request.urlopen(req, timeout=3) as resp:  # noqa: S310 (trusted host)
+        data = json.loads(resp.read().decode())
+    results = data.get("results") or []
+    if results:
+        return float(results[0]["LATITUDE"]), float(results[0]["LONGITUDE"])
+    return None, None
+
+
+def _geocode_nominatim(location: str):
+    """Fallback geocoder: OSM Nominatim, constrained to Singapore.
+
+    OneMap only indexes addresses/buildings, so names like parks and nature
+    trails ("MacRitchie Nature Trail") miss there but resolve here.
+    """
+    qs = urllib.parse.urlencode({
+        "q": location, "format": "json", "limit": 1, "countrycodes": "sg",
+    })
+    req = urllib.request.Request(
+        f"{NOMINATIM_SEARCH}?{qs}",
+        headers={"User-Agent": "bloodline-hackathon (bloodlineapps@gmail.com)"},
+    )
+    with urllib.request.urlopen(req, timeout=4) as resp:  # noqa: S310 (trusted host)
+        data = json.loads(resp.read().decode())
+    if data:
+        return float(data[0]["lat"]), float(data[0]["lon"])
+    return None, None
+
+
+def _query_variants(location: str) -> list:
+    """Progressively simpler search strings for a stubborn location name:
+    the name as-is, without drive-y suffixes, and the part before any comma.
+    """
+    out, seen = [], set()
+
+    def add(q: str):
+        q = q.strip(" ,-·")
+        if q and q.lower() not in seen:
+            seen.add(q.lower())
+            out.append(q)
+
+    add(location)
+    low = location.lower()
+    for noise in ("blood donation drive", "blood drive", "donation drive"):
+        idx = low.find(noise)
+        if idx != -1:
+            add(location[:idx] + location[idx + len(noise):])
+    add(location.split(",")[0])
+    return out[:3]
+
+
+def _geocode_location(location: str):
+    """Best-effort SG coords for a free-text location: OneMap across query
+    variants, then Nominatim. Results outside Singapore are wrong matches and
+    rejected. Returns (lat, lng) or (None, None); raises if every miss was
+    transient so the caller retries instead of marking a permanent failure.
+    """
+    transient = False
+    for q in _query_variants(location):
+        try:
+            lat, lng = _geocode_onemap(q)
+        except Exception:
+            transient = True
+            continue
+        if lat is not None and _in_singapore(lat, lng):
+            return lat, lng
+    for q in _query_variants(location):
+        try:
+            lat, lng = _geocode_nominatim(q)
+        except Exception:
+            transient = True
+            continue
+        if lat is not None and _in_singapore(lat, lng):
+            return lat, lng
+    if transient:
+        raise RuntimeError(f"geocode transient failure: {location}")
+    return None, None
+
+
+def _ensure_coords(items: list, table, id_field: str, limit: int = 8) -> None:
+    """Lazily geocode items missing lat/lng and persist the result, so each unique
+    location is only geocoded once (avoids the browser hitting OneMap/Nominatim
+    rate limits on every page load). Dedupes by location name and caps unique
+    geocodes per request to bound latency.
+    """
+    resolved = {}        # location -> (lat, lng)
+    no_match = set()     # locations OneMap genuinely couldn't place
+    attempted = set()    # locations tried this request (incl. transient failures)
+    geocoded = 0
+
+    for item in items:
+        if item.get("lat") is not None and item.get("lng") is not None:
+            continue
+        loc = item.get("location")
+        if not loc:
+            continue
+
+        # Fixed sites: apply hardcoded coords directly (no geocoding, no rate
+        # limit), even if a previous OneMap attempt wrongly marked them failed.
+        if loc in KNOWN_COORDS:
+            lat, lng = KNOWN_COORDS[loc]
+            item["lat"], item["lng"] = lat, lng
+            table.update_item(
+                Key={id_field: item[id_field]},
+                UpdateExpression="SET lat = :a, lng = :o REMOVE geocodeFailed",
+                ExpressionAttributeValues={":a": Decimal(str(lat)), ":o": Decimal(str(lng))},
+            )
+            continue
+
+        # Only skip failures from the *current* pipeline version — older flags
+        # (e.g. True, from before the Nominatim fallback) get one retry with
+        # the improved resolver.
+        if item.get("geocodeFailed") == GEOCODE_VERSION:
+            continue
+
+        if loc not in resolved and loc not in no_match and loc not in attempted:
+            if geocoded >= limit:
+                continue  # over budget this request — pick it up next time
+            geocoded += 1
+            attempted.add(loc)
+            try:
+                lat, lng = _geocode_location(loc)
+            except Exception:
+                logger.warning("Geocode transient error — will retry", location=loc)
+                continue  # transient (429/timeout) — retry on a later request
+            if lat is not None and lng is not None:
+                resolved[loc] = (lat, lng)
+            else:
+                no_match.add(loc)
+
+        if loc in resolved:
+            lat, lng = resolved[loc]
+            item["lat"], item["lng"] = lat, lng
+            table.update_item(
+                Key={id_field: item[id_field]},
+                UpdateExpression="SET lat = :a, lng = :o",
+                ExpressionAttributeValues={":a": Decimal(str(lat)), ":o": Decimal(str(lng))},
+            )
+        elif loc in no_match:
+            table.update_item(
+                Key={id_field: item[id_field]},
+                UpdateExpression="SET geocodeFailed = :t",
+                ExpressionAttributeValues={":t": GEOCODE_VERSION},
+            )
 
 
 def _response(status_code: int, body: dict) -> dict:
@@ -54,16 +243,53 @@ def lambda_handler(event: dict, context: LambdaContext) -> dict:
         return _list_hospital_drives(event)
     if "/bookings" in path and method == "GET":
         return _list_my_bookings(event)
+    if "/my-drives" in path and method == "GET":
+        return _list_my_drives(event)
     if "/drives" in path and method == "GET":
         return _list_drives(event)
     if "/drives" in path and method == "POST":
         return _create_drive(event)
 
+    # Donor notifications
+    if "/donor/notifications" in path and method == "POST":
+        notif_id = path.split("/donor/notifications/")[1].split("/read")[0]
+        return _mark_notification_read(event, notif_id)
+    if "/donor/notifications" in path and method == "GET":
+        return _list_notifications(event)
+
     # Legacy donor bookings for drives
+    if "/book/" in path and method == "DELETE":
+        return _cancel_drive_booking(event)
     if "/book" in path and method == "POST":
         return _create_booking(event)
 
     return _response(404, {"error": "Not found"})
+
+
+def _cancel_drive_booking(event: dict) -> dict:
+    donor_id = _donor_id_from_event(event)
+    drive_id = (event.get("pathParameters") or {}).get("driveId")
+    if not drive_id:
+        return _response(400, {"error": "driveId is required"})
+
+    existing = bookings_table.get_item(Key={"donorId": donor_id, "driveId": drive_id})
+    if not existing.get("Item"):
+        return _response(404, {"error": "Booking not found"})
+
+    bookings_table.delete_item(Key={"donorId": donor_id, "driveId": drive_id})
+
+    # Free the seat on the drive
+    drive = drives_table.get_item(Key={"driveId": drive_id}).get("Item")
+    if drive:
+        new_booked = max(int(drive.get("booked", 0)) - 1, 0)
+        drives_table.update_item(
+            Key={"driveId": drive_id},
+            UpdateExpression="SET booked = :b",
+            ExpressionAttributeValues={":b": new_booked},
+        )
+
+    logger.info("Drive booking cancelled", donor_id=donor_id, drive_id=drive_id)
+    return _response(200, {"driveId": drive_id, "status": "cancelled"})
 
 
 def _list_my_bookings(event: dict) -> dict:
@@ -126,6 +352,7 @@ def _list_slots(event: dict) -> dict:
 
     result = slots_table.scan(FilterExpression=filter_expr)
     slots = result.get("Items", [])
+    _ensure_coords(slots, slots_table, "slotId")
     for slot in slots:
         for key in ("capacity", "booked"):
             if key in slot:
@@ -134,6 +361,38 @@ def _list_slots(event: dict) -> dict:
             if key in slot and slot[key] is not None:
                 slot[key] = float(slot[key])
     return _response(200, {"slots": slots, "count": len(slots)})
+
+
+def _attribute_surge_booking(donor_id: str) -> None:
+    """Credit this booking to the active surge calling for the donor's blood type.
+
+    Closes the surge funnel: the HSA console's "Bookings" metric becomes the real
+    count of donors who booked in response to a live alert. Best-effort — any
+    failure here is logged and swallowed so it can never break the booking itself.
+    A donor's type maps to at most one active surge (surges supersede on overlap).
+    """
+    try:
+        donor = donors_table.get_item(Key={"donorId": donor_id}).get("Item")
+        blood_type = donor and donor.get("bloodType")
+        if not blood_type:
+            return
+        active = alerts_table.scan(
+            FilterExpression=Attr("status").eq("active")
+        ).get("Items", [])
+        for alert in active:
+            types = set(alert.get("bloodTypes")
+                        or ([alert["bloodType"]] if alert.get("bloodType") else []))
+            if blood_type in types:
+                alerts_table.update_item(
+                    Key={"alertId": alert["alertId"]},
+                    UpdateExpression="ADD bookings :one",
+                    ExpressionAttributeValues={":one": 1},
+                )
+                logger.info("Surge booking attributed",
+                            alert_id=alert["alertId"], donor_id=donor_id,
+                            blood_type=blood_type)
+    except Exception:
+        logger.exception("Surge booking attribution failed", donor_id=donor_id)
 
 
 def _book_slot(event: dict) -> dict:
@@ -188,6 +447,7 @@ def _book_slot(event: dict) -> dict:
             ExpressionAttributeValues=expr_vals,
         )
 
+    _attribute_surge_booking(donor_id)
     logger.info("Slot booked", donor_id=donor_id, slot_id=slot_id, booking_id=booking_id)
     return _response(201, {"bookingId": booking_id, "slotId": slot_id, "status": "confirmed"})
 
@@ -269,12 +529,18 @@ def _create_drive(event: dict) -> dict:
         "availableSlots": int(capacity),
         "acceptedBloodTypes": body.get("acceptedBloodTypes", ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"]),
         "notes": body.get("notes", ""),
-        "status": "upcoming",
+        "status": "pending_approval",
         "createdAt": now,
         "createdBy": creator_id,
     }
+    # Persist the picked map coordinates so the booking list can sort by proximity
+    # without re-geocoding the location name.
+    lat, lng = body.get("lat"), body.get("lng")
+    if lat is not None and lng is not None:
+        drive["lat"] = Decimal(str(lat))
+        drive["lng"] = Decimal(str(lng))
     drives_table.put_item(Item=drive)
-    logger.info("Blood drive created", drive_id=drive_id, name=name)
+    logger.info("Blood drive created", drive_id=drive_id, drive_name=name)
     return _response(201, drive)
 
 
@@ -289,10 +555,14 @@ def _list_drives(event: dict) -> dict:
 
     result = drives_table.scan(FilterExpression=filter_expr)
     drives = result.get("Items", [])
+    _ensure_coords(drives, drives_table, "driveId")
     for drive in drives:
         for key in ("capacity", "booked", "availableSlots"):
             if key in drive:
                 drive[key] = int(drive[key])
+        for key in ("lat", "lng"):
+            if key in drive and drive[key] is not None:
+                drive[key] = float(drive[key])
 
     logger.info("Blood drives listed", count=len(drives))
     return _response(200, {"drives": drives, "count": len(drives)})
@@ -341,6 +611,7 @@ def _create_booking(event: dict) -> dict:
         ExpressionAttributeValues={":one": 1},
     )
 
+    _attribute_surge_booking(donor_id)
     logger.info("Booking created", donor_id=donor_id, drive_id=drive_id, booking_id=booking_id)
     return _response(201, {
         "bookingId": booking_id,
@@ -349,3 +620,38 @@ def _create_booking(event: dict) -> dict:
         "status": "confirmed",
         "bringAFriend": True,
     })
+
+
+def _list_my_drives(event: dict) -> dict:
+    """Return all drives submitted by the current donor, any status."""
+    donor_id = _donor_id_from_event(event)
+    result = drives_table.scan(FilterExpression=Attr("createdBy").eq(donor_id))
+    drives = result.get("Items", [])
+    for d in drives:
+        for k in ("capacity", "booked", "availableSlots"):
+            if k in d:
+                d[k] = int(d[k])
+    drives.sort(key=lambda d: d.get("createdAt", ""), reverse=True)
+    return _response(200, {"drives": drives})
+
+
+def _list_notifications(event: dict) -> dict:
+    """Return all notifications for the current donor, newest first."""
+    donor_id = _donor_id_from_event(event)
+    result = notifs_table.query(
+        KeyConditionExpression=Key("donorId").eq(donor_id),
+        ScanIndexForward=False,
+    )
+    notifs = result.get("Items", [])
+    return _response(200, {"notifications": notifs})
+
+
+def _mark_notification_read(event: dict, notif_id: str) -> dict:
+    donor_id = _donor_id_from_event(event)
+    notifs_table.update_item(
+        Key={"donorId": donor_id, "notifId": notif_id},
+        UpdateExpression="SET #r = :r",
+        ExpressionAttributeNames={"#r": "read"},
+        ExpressionAttributeValues={":r": True},
+    )
+    return _response(200, {"notifId": notif_id, "read": True})

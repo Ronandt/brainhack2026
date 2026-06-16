@@ -1,19 +1,27 @@
 import json
+import math
 import os
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 import boto3
 from aws_lambda_powertools import Logger
 from aws_lambda_powertools.utilities.typing import LambdaContext
+from boto3.dynamodb.conditions import Attr
 
 logger = Logger()
 dynamodb = boto3.resource("dynamodb")
 sns = boto3.client("sns")
 alerts_table = dynamodb.Table(os.environ["ALERTS_TABLE"])
+donors_table = dynamodb.Table(os.environ["DONORS_TABLE"])
+hospitals_table = dynamodb.Table(os.environ.get("HOSPITALS_TABLE", "bloodline-hospitals-dev"))
 SURGE_ALERT_TOPIC = os.environ["SURGE_ALERT_TOPIC"]
 
 GEO_TIERS = ["5km", "15km", "island-wide"]
+# Must mirror notify/handler.py — the preview count below uses the same rules
+# the notify Lambda uses when it actually dispatches.
+TIER_RADIUS_KM = {"5km": 5.0, "15km": 15.0, "island-wide": None}
+LIVE_FIX_FRESHNESS_HOURS = 3
 
 
 def _response(status_code: int, body: dict) -> dict:
@@ -30,6 +38,57 @@ def _is_hsa_admin(event: dict) -> bool:
     return "HSAAdmin" in groups
 
 
+def _haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
+    r = 6371.0
+    d_phi = math.radians(lat2 - lat1)
+    d_lambda = math.radians(lng2 - lng1)
+    a = (math.sin(d_phi / 2) ** 2
+         + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(d_lambda / 2) ** 2)
+    return 2 * r * math.asin(math.sqrt(a))
+
+
+def _effective_location(donor: dict) -> tuple[float, float] | None:
+    live_seen = donor.get("liveSeenAt")
+    if live_seen and donor.get("liveLat") is not None and donor.get("liveLng") is not None:
+        try:
+            seen = datetime.fromisoformat(live_seen)
+            if seen.tzinfo is None:
+                seen = seen.replace(tzinfo=timezone.utc)
+            if datetime.now(timezone.utc) - seen <= timedelta(hours=LIVE_FIX_FRESHNESS_HOURS):
+                return float(donor["liveLat"]), float(donor["liveLng"])
+        except ValueError:
+            pass
+    if donor.get("homeLat") is not None and donor.get("homeLng") is not None:
+        return float(donor["homeLat"]), float(donor["homeLng"])
+    return None
+
+
+def _hospital_coords() -> list[tuple[float, float]]:
+    items = hospitals_table.scan(ProjectionExpression="lat, lng").get("Items", [])
+    return [(float(h["lat"]), float(h["lng"])) for h in items
+            if h.get("lat") is not None and h.get("lng") is not None]
+
+
+def _within_radius(donor: dict, banks: list[tuple[float, float]], radius_km: float) -> bool:
+    loc = _effective_location(donor)
+    if loc is None:
+        return False
+    dlat, dlng = loc
+    return any(_haversine_km(dlat, dlng, blat, blng) <= radius_km for blat, blng in banks)
+
+
+def _scan_all(filter_expr=None) -> list:
+    items = []
+    kwargs = {"FilterExpression": filter_expr} if filter_expr is not None else {}
+    while True:
+        result = donors_table.scan(**kwargs)
+        items.extend(result.get("Items", []))
+        last_key = result.get("LastEvaluatedKey")
+        if not last_key:
+            return items
+        kwargs["ExclusiveStartKey"] = last_key
+
+
 @logger.inject_lambda_context
 def lambda_handler(event: dict, context: LambdaContext) -> dict:
     method = event["httpMethod"]
@@ -38,12 +97,73 @@ def lambda_handler(event: dict, context: LambdaContext) -> dict:
     if method == "POST" and "/end" in path:
         alert_id = (event.get("pathParameters") or {}).get("alertId")
         return _end_surge(event, alert_id)
+    if method == "POST" and "/respond" in path:
+        alert_id = (event.get("pathParameters") or {}).get("alertId")
+        return _respond_surge(alert_id)
     if method == "POST":
         return _activate_surge(event)
+    if method == "GET" and "/reach" in path:
+        return _preview_reach(event)
     if method == "GET":
         return _monitor_surge(event)
 
     return _response(405, {"error": "Method not allowed"})
+
+
+def _preview_reach(event: dict) -> dict:
+    """Dry-run the notify matching (blood type + radius) and return the donor count.
+
+    Lets the HSA console show a real projected reach before activating.
+    """
+    if not _is_hsa_admin(event):
+        return _response(403, {"error": "HSA admin access required"})
+
+    params = event.get("queryStringParameters") or {}
+    geo_tier = params.get("geoTier", "island-wide")
+    blood_types = [bt for bt in (params.get("bloodTypes") or "").split(",") if bt]
+
+    if geo_tier not in GEO_TIERS:
+        return _response(400, {"error": f"geoTier must be one of {GEO_TIERS}"})
+
+    # A surge always targets its blood type(s); the tier only adds a radius below.
+    if not blood_types:
+        return _response(200, {"notified": 0, "geoTier": geo_tier})
+    type_filter = None
+    for bt in blood_types:
+        cond = Attr("bloodType").eq(bt)
+        type_filter = cond if type_filter is None else (type_filter | cond)
+    donors = _scan_all(type_filter)
+
+    radius_km = TIER_RADIUS_KM.get(geo_tier)
+    banks = []
+    if radius_km is not None:
+        banks = _hospital_coords()
+        if banks:
+            donors = [d for d in donors if _within_radius(d, banks, radius_km)]
+
+    # Mirror notify: opted-out donors are never alerted, so they don't count toward reach.
+    donors = [d for d in donors if not d.get("surgeOptOut")]
+
+    return _response(200, {"notified": len(donors), "geoTier": geo_tier, "banks": len(banks)})
+
+
+def _supersede_overlapping(new_types: set, new_alert_id: str, now: str) -> list:
+    """End any active surge whose blood types overlap new_types (newest wins)."""
+    result = alerts_table.scan(FilterExpression=Attr("status").eq("active"))
+    ended = []
+    for old in result.get("Items", []):
+        old_types = set(old.get("bloodTypes") or ([old["bloodType"]] if old.get("bloodType") else []))
+        if new_types & old_types:
+            alerts_table.update_item(
+                Key={"alertId": old["alertId"]},
+                UpdateExpression="SET #s = :e, endedAt = :t, supersededBy = :n",
+                ExpressionAttributeNames={"#s": "status"},
+                ExpressionAttributeValues={":e": "ended", ":t": now, ":n": new_alert_id},
+            )
+            ended.append(old["alertId"])
+    if ended:
+        logger.info("Superseded overlapping surges", new_alert_id=new_alert_id, ended=ended)
+    return ended
 
 
 def _activate_surge(event: dict) -> dict:
@@ -73,6 +193,10 @@ def _activate_surge(event: dict) -> dict:
     activated_by = event["requestContext"]["authorizer"]["claims"]["sub"]
     now = datetime.utcnow().isoformat()
     blood_type_label = ", ".join(blood_types)
+
+    # One active surge per blood type: end any active surge that overlaps the new
+    # blood types so a donor only ever sees a single relevant call (newest wins).
+    superseded = _supersede_overlapping(set(blood_types), alert_id, now)
 
     alert = {
         "alertId": alert_id,
@@ -107,8 +231,8 @@ def _activate_surge(event: dict) -> dict:
         },
     )
 
-    logger.info("Surge alert activated", alert_id=alert_id, blood_types=blood_types, geo_tier=geo_tier)
-    return _response(201, {"alertId": alert_id, "status": "active", "bloodTypes": blood_types, "message": "Surge alert activated and notifications dispatched"})
+    logger.info("Surge alert activated", alert_id=alert_id, blood_types=blood_types, geo_tier=geo_tier, superseded=len(superseded))
+    return _response(201, {"alertId": alert_id, "status": "active", "bloodTypes": blood_types, "superseded": len(superseded), "message": "Surge alert activated and notifications dispatched"})
 
 
 def _end_surge(event: dict, alert_id: str) -> dict:
@@ -131,6 +255,27 @@ def _end_surge(event: dict, alert_id: str) -> dict:
     return _response(200, {"alertId": alert_id, "status": "ended"})
 
 
+def _respond_surge(alert_id: str) -> dict:
+    """Count a donor engaging with a live surge in-app — the funnel step between
+    being notified and booking. Any authenticated donor may call it (no admin
+    gate); the donor app fires it once per alert, so it approximates unique
+    donors who opened the call. Never errors the donor app on an unknown/ended
+    alert — there's just nothing to count.
+    """
+    if not alert_id:
+        return _response(400, {"error": "alertId is required"})
+    try:
+        alerts_table.update_item(
+            Key={"alertId": alert_id},
+            UpdateExpression="ADD responses :one",
+            ExpressionAttributeValues={":one": 1},
+            ConditionExpression=Attr("alertId").exists(),
+        )
+    except Exception:
+        return _response(200, {"alertId": alert_id, "counted": False})
+    return _response(200, {"alertId": alert_id, "counted": True})
+
+
 def _monitor_surge(event: dict) -> dict:
     # List all active alerts with live metrics
     result = alerts_table.scan(
@@ -139,7 +284,7 @@ def _monitor_surge(event: dict) -> dict:
     alerts = result.get("Items", [])
 
     for alert in alerts:
-        for key in ("donorsNotified", "emailsSent", "responses", "bookings"):
+        for key in ("donorsNotified", "emailsSent", "pushSent", "smsSent", "responses", "bookings"):
             if key in alert:
                 alert[key] = int(alert[key])
 

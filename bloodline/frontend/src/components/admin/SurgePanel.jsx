@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { activateSurge, endSurge, getAllAlerts, getDonorSegments } from "../../api";
+import { activateSurge, endSurge, getAllAlerts, getSurgeReach } from "../../api";
 import { BL } from "../../tokens";
 import SurgeReachMap from "./SurgeReachMap";
 
@@ -33,9 +33,9 @@ function Tag({ children, color, bg }) {
   );
 }
 
-function W({ children, style, pad = 16 }) {
+function Card({ children, style, pad = 16 }) {
   return (
-    <div style={{ background: BL.card, border: `1px solid ${BL.hair}`, borderRadius: 6, padding: pad, ...style }}>
+    <div style={{ background: BL.card, boxShadow: "0 1px 10px rgba(0,0,0,0.06), 0 0 0 1px rgba(0,0,0,0.04)", borderRadius: 14, padding: pad, ...style }}>
       {children}
     </div>
   );
@@ -50,9 +50,9 @@ export default function SurgePanel() {
   const [error,      setError]      = useState("");
   const [alerts,     setAlerts]     = useState([]);
   const [endingId,   setEndingId]   = useState(null);
-  // Real donor pool: total count + count per blood type (from getDonorSegments)
-  const [donorTotal, setDonorTotal] = useState(null);
-  const [donorByType, setDonorByType] = useState({});
+  // Real projected reach from the backend (same blood-type + radius matching the
+  // notify Lambda uses). null until the first /surge/reach call returns.
+  const [reachCount, setReachCount] = useState(null);
 
   function loadAlerts() {
     getAllAlerts().then(d => setAlerts(d.alerts ?? [])).catch(() => {});
@@ -60,26 +60,33 @@ export default function SurgePanel() {
 
   useEffect(() => { loadAlerts(); }, [result]);
 
+  // Poll so freshly-activated alerts pick up their notify counts (notify runs
+  // a second or two after activation, via SNS).
   useEffect(() => {
-    getDonorSegments()
-      .then(d => {
-        const counts = {};
-        Object.values(d.segments ?? {}).forEach(arr =>
-          (arr ?? []).forEach(donor => {
-            const bt = donor.bloodType;
-            if (bt && bt !== "—") counts[bt] = (counts[bt] ?? 0) + 1;
-          })
-        );
-        setDonorByType(counts);
-        setDonorTotal(d.total ?? Object.values(counts).reduce((s, n) => s + n, 0));
-      })
-      .catch(() => {});
+    const id = setInterval(loadAlerts, 10_000);
+    return () => clearInterval(id);
   }, []);
+
+  // Live projected reach — recompute (debounced) whenever tier or blood types change.
+  useEffect(() => {
+    setReachCount(null);
+    const id = setTimeout(() => {
+      getSurgeReach(geoTier, bloodTypes)
+        .then(d => setReachCount(d.notified ?? 0))
+        .catch(() => setReachCount(null));
+    }, 400);
+    return () => clearTimeout(id);
+  }, [geoTier, bloodTypes]);
 
   function toggleBloodType(bt) {
     setBloodTypes(prev =>
       prev.includes(bt) ? prev.filter(t => t !== bt) : [...prev, bt]
     );
+  }
+
+  const allTypesSelected = bloodTypes.length === BLOOD_TYPES.length;
+  function toggleAllTypes() {
+    setBloodTypes(allTypesSelected ? [] : [...BLOOD_TYPES]);
   }
 
   async function handleEndSurge(alertId) {
@@ -107,12 +114,9 @@ export default function SurgePanel() {
     }
   }
 
-  // Projected reach from the real donor pool. Island-wide notifies everyone;
-  // narrower tiers are scoped to the selected blood types.
-  const knownPool = donorTotal !== null;
-  const notified = geoTier === "island-wide"
-    ? (donorTotal ?? 0)
-    : bloodTypes.reduce((sum, bt) => sum + (donorByType[bt] ?? 0), 0);
+  // Projected reach comes from the backend (blood-type + geo-radius matched).
+  const knownPool = reachCount !== null;
+  const notified = reachCount ?? 0;
   const responses = Math.round(notified * (TIER_RATE[geoTier] ?? 0.1));
   const reach = { notified, responses };
   const bloodLabel = bloodTypes.length ? bloodTypes.join(", ") : "—";
@@ -125,7 +129,7 @@ export default function SurgePanel() {
 
   const labelStyle = { display: "block", fontFamily: BL.sans, fontSize: 12, color: BL.muted, marginBottom: 6, marginTop: 16 };
   const inputStyle = {
-    width: "100%", background: BL.card, border: `1px solid ${BL.rule}`, borderRadius: 6,
+    width: "100%", background: BL.fill, border: `1px solid ${BL.hair}`, borderRadius: 10,
     padding: "9px 12px", color: BL.ink, fontSize: 13, fontFamily: BL.sans, outline: "none",
     boxSizing: "border-box",
   };
@@ -147,7 +151,7 @@ export default function SurgePanel() {
 
       <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: 14 }}>
         {/* ── Configure (left) ───────────────────── */}
-        <W pad={20}>
+        <Card pad={20}>
           <Tag color={BL.muted}>Step 1 · Configure</Tag>
 
           {/* Blood type chips */}
@@ -162,7 +166,7 @@ export default function SurgePanel() {
                     type="button"
                     onClick={() => toggleBloodType(bt)}
                     style={{
-                      width: 44, height: 44, borderRadius: 6, border: sel ? `2px solid ${BL.ink}` : `1px solid ${BL.hair}`,
+                      width: 44, height: 44, borderRadius: 8, border: sel ? `2px solid ${BL.ink}` : `1px solid ${BL.hair}`,
                       background: sel ? BL.fill : BL.card,
                       fontFamily: BL.mono, fontSize: 12, fontWeight: 600, color: sel ? BL.ink : BL.muted,
                       cursor: "pointer", outline: sel ? `2px solid ${BL.ink}` : "none", outlineOffset: 1,
@@ -172,11 +176,28 @@ export default function SurgePanel() {
                   </button>
                 );
               })}
+              {/* All-hands broadcast: selects every type so every donor is alerted */}
+              <button
+                type="button"
+                onClick={toggleAllTypes}
+                title="Alert donors of every blood type"
+                style={{
+                  height: 44, padding: "0 14px", borderRadius: 8,
+                  border: allTypesSelected ? `2px solid ${BL.surge}` : `1px solid ${BL.hair}`,
+                  background: allTypesSelected ? `${BL.surge}14` : BL.card,
+                  fontFamily: BL.mono, fontSize: 11, fontWeight: 600,
+                  color: allTypesSelected ? BL.surge : BL.muted, cursor: "pointer",
+                }}
+              >
+                {allTypesSelected ? "ALL ✓" : "ALL"}
+              </button>
             </div>
-            <div style={{ fontFamily: BL.mono, fontSize: 10, color: BL.muted, marginTop: 8, letterSpacing: 0.3 }}>
-              {bloodTypes.length
-                ? `${bloodLabel} selected · tap to toggle multiple`
-                : "Select one or more blood types"}
+            <div style={{ fontFamily: BL.mono, fontSize: 10, color: allTypesSelected ? BL.surge : BL.muted, marginTop: 8, letterSpacing: 0.3 }}>
+              {allTypesSelected
+                ? "All blood types · every donor will be alerted (all-hands)"
+                : bloodTypes.length
+                  ? `${bloodLabel} selected · tap to toggle multiple`
+                  : "Select one or more blood types"}
             </div>
           </div>
 
@@ -186,12 +207,10 @@ export default function SurgePanel() {
             <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 6 }}>
               {GEO_TIERS.map(tier => {
                 const sel = geoTier === tier.id;
-                const tierNotified = tier.id === "island-wide"
-                  ? (donorTotal ?? 0)
-                  : bloodTypes.reduce((sum, bt) => sum + (donorByType[bt] ?? 0), 0);
-                const tierEst = knownPool
-                  ? `${tierNotified.toLocaleString()} donors · est ${Math.round(tier.rate * 100)}% response`
-                  : `loading donor pool · est ${Math.round(tier.rate * 100)}% response`;
+                // Live donor count is only fetched for the selected tier; others show the rate.
+                const tierEst = sel && knownPool
+                  ? `${notified.toLocaleString()} donors · est ${Math.round(tier.rate * 100)}% response`
+                  : `est ${Math.round(tier.rate * 100)}% response`;
                 return (
                   <button
                     key={tier.id}
@@ -199,8 +218,9 @@ export default function SurgePanel() {
                     onClick={() => setGeoTier(tier.id)}
                     style={{
                       width: "100%", textAlign: "left",
-                      padding: 12, borderRadius: 6, cursor: "pointer",
-                      border: sel ? `2px solid ${BL.ink}` : `1px solid ${BL.hair}`,
+                      padding: 12, borderRadius: 10, cursor: "pointer",
+                      border: sel ? `2px solid ${BL.ink}` : "none",
+                      boxShadow: sel ? "none" : "0 0 0 1px rgba(0,0,0,0.08)",
                       background: BL.card, display: "flex", alignItems: "center", gap: 12,
                     }}
                   >
@@ -227,10 +247,12 @@ export default function SurgePanel() {
           <div style={{ marginTop: 18 }}>
             <label style={labelStyle}>Channel + cap</label>
             <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
-              <W pad={10} style={{ flex: 1 }}>
+              <Card pad={10} style={{ flex: 1 }}>
                 <Tag>Channels</Tag>
                 <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
-                  {[["Push", true], ["SMS", true], ["WhatsApp", false], ["Email", false]].map(([ch, on]) => (
+                  {/* Reflects what the notify Lambda actually dispatches: push + email
+                      are always on; SMS is env-gated (SMS_ENABLED, off by default); no WhatsApp. */}
+                  {[["Push", true], ["Email", true], ["SMS", false], ["WhatsApp", false]].map(([ch, on]) => (
                     <span key={ch} style={{
                       fontFamily: BL.mono, fontSize: 9, letterSpacing: 0.4, textTransform: "uppercase",
                       color: on ? BL.ink : BL.faint,
@@ -242,23 +264,23 @@ export default function SurgePanel() {
                     </span>
                   ))}
                 </div>
-              </W>
-              <W pad={10} style={{ flex: 1 }}>
+              </Card>
+              <Card pad={10} style={{ flex: 1 }}>
                 <Tag>Send cap / donor</Tag>
                 <div style={{ fontFamily: BL.mono, fontSize: 12, color: BL.ink, fontWeight: 600, marginTop: 8, lineHeight: 1.5 }}>1 push · then SMS at 6h</div>
-              </W>
+              </Card>
             </div>
           </div>
 
           {/* Surge message preview */}
           <div style={{ marginTop: 18 }}>
             <label style={labelStyle}>Surge message</label>
-            <W pad={12} style={{ marginTop: 6, background: BL.surgeBg, border: `1px solid ${BL.surge}44` }}>
+            <Card pad={12} style={{ marginTop: 6, background: BL.surgeBg, border: `1px solid ${BL.surge}44` }}>
               <Tag color={BL.surge}>Surge · {bloodLabel}</Tag>
               <div style={{ fontFamily: BL.sans, fontSize: 13, color: BL.ink, fontWeight: 500, marginTop: 4 }}>
                 {bloodLabel} is needed today. Bloodbank@HSA · slots in next 24h.
               </div>
-            </W>
+            </Card>
             <textarea
               style={{ ...inputStyle, resize: "vertical", minHeight: 60, marginTop: 8 }}
               value={message}
@@ -267,12 +289,12 @@ export default function SurgePanel() {
             />
           </div>
 
-        </W>
+        </Card>
 
         {/* ── Right column ────────────────────────── */}
         <div>
           {/* Projected reach */}
-          <W pad={20} style={{ marginBottom: 14 }}>
+          <Card pad={20} style={{ marginBottom: 14 }}>
             <Tag>Step 2 · Projected reach</Tag>
             <div style={{ marginTop: 12 }}>
               <SurgeReachMap geoTier={geoTier} notified={reach.notified} bloodLabel={bloodLabel} />
@@ -291,10 +313,10 @@ export default function SurgePanel() {
                 <Tag>projected responses · 24h</Tag>
               </div>
             </div>
-          </W>
+          </Card>
 
           {/* Capacity check */}
-          <W pad={20} style={{ marginBottom: 14 }}>
+          <Card pad={20} style={{ marginBottom: 14 }}>
             <Tag>Step 3 · Capacity check</Tag>
             <div style={{ marginTop: 12 }}>
               {BLOOD_BANKS.map(([name, used, cap], i) => (
@@ -310,18 +332,18 @@ export default function SurgePanel() {
             <div style={{ marginTop: 10 }}>
               <Tag color={BL.need.urgent.fg}>⚠ +120 slots will be opened automatically</Tag>
             </div>
-          </W>
+          </Card>
 
           {/* Break-glass */}
           <form onSubmit={handleActivate}>
             <div style={{
-              padding: 20, borderRadius: 8,
+              padding: 20, borderRadius: 14,
               background: BL.surgeBg, border: `2px solid ${BL.surge}`,
             }}>
               <Tag color={BL.surge}>Break glass · single-officer activation</Tag>
               <div style={{ fontFamily: BL.sans, fontSize: 14, color: BL.ink, fontWeight: 500, marginTop: 8, lineHeight: 1.4 }}>
                 Activating will notify <strong>{reach.notified.toLocaleString()}</strong> donors by push + email and shift the donor app into surge mode.
-                Cannot be undone for 6h.
+                You can end it anytime from the live monitor below.
               </div>
               <button
                 type="submit"
@@ -345,14 +367,14 @@ export default function SurgePanel() {
           </form>
 
           {/* Live monitor */}
-          {alerts.length > 0 && (
-            <W pad={16} style={{ marginTop: 14 }}>
+          {activeAlerts.length > 0 && (
+            <Card pad={16} style={{ marginTop: 14 }}>
               <div style={{ fontFamily: BL.sans, fontSize: 13, fontWeight: 600, color: BL.ink, marginBottom: 10 }}>Live alert monitor</div>
               {monitorAlerts.map(a => (
-                <div key={a.alertId} style={{ background: BL.fill, borderRadius: 6, padding: "10px 12px", marginBottom: 8 }}>
+                <div key={a.alertId} style={{ background: BL.fill, borderRadius: 10, padding: "10px 12px", marginBottom: 8, border: "none" }}>
                   <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 6 }}>
                     <span style={{ fontFamily: BL.mono, fontWeight: 600, color: BL.red, fontSize: 14 }}>{a.bloodType}</span>
-                    <span style={{ fontFamily: BL.mono, fontSize: 10, background: BL.hair, borderRadius: 3, padding: "2px 7px", color: BL.muted }}>{a.geoTier}</span>
+                    <span style={{ fontFamily: BL.mono, fontSize: 10, background: BL.fill, borderRadius: 3, padding: "2px 7px", color: BL.muted }}>{a.geoTier}</span>
                     <div style={{ flex: 1 }} />
                     <span style={{ fontFamily: BL.mono, fontSize: 10, fontWeight: 600, color: a.status === "active" ? BL.need.ok.fg : BL.muted }}>
                       {a.status?.toUpperCase()}
@@ -362,7 +384,7 @@ export default function SurgePanel() {
                         onClick={() => handleEndSurge(a.alertId)}
                         disabled={endingId === a.alertId}
                         style={{
-                          background: "none", border: `1px solid ${BL.surge}`, borderRadius: 4,
+                          background: "none", border: `1px solid ${BL.surge}`, borderRadius: 6,
                           color: BL.surge, fontFamily: BL.mono, fontSize: 9, letterSpacing: 0.4,
                           padding: "3px 8px", cursor: "pointer", textTransform: "uppercase",
                           opacity: endingId === a.alertId ? 0.5 : 1,
@@ -396,7 +418,7 @@ export default function SurgePanel() {
                   </div>
                 </div>
               ))}
-            </W>
+            </Card>
           )}
         </div>
       </div>

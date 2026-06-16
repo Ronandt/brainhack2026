@@ -3,10 +3,22 @@
 
 Set-Location $PSScriptRoot
 
+# Ensure Python 3.13 (the Lambda runtime) is on PATH so `sam build` can find it.
+$py313 = @(
+    "$env:LOCALAPPDATA\Programs\Python\Python313",
+    "C:\Python313",
+    "$env:ProgramFiles\Python313"
+) | Where-Object { Test-Path "$_\python.exe" } | Select-Object -First 1
+if ($py313) {
+    $env:PATH = "$py313;$env:PATH"
+    Write-Host "Using Python 3.13 at $py313" -ForegroundColor DarkGray
+} else {
+    Write-Host "WARNING: Python 3.13 not found on this machine - sam build may fail." -ForegroundColor Yellow
+}
+
 # 1. Build and deploy SAM stack
 Write-Host "Deploying SAM stack..." -ForegroundColor Cyan
 sam build
-sam deploy
 
 # 2. Grab outputs from CloudFormation
 $outputs = aws cloudformation describe-stacks --stack-name bloodline-dev `
